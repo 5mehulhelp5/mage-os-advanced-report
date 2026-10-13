@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="customer_orders" label="Customer orders" acl="MageOS_AdvancedReport::customers" area="foo">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <field code="grand_total" label="Grand Total" type="money">
+            <mysql expression="main.base_grand_total"/>
+        </field>
+        <metric code="orders" label="Orders" format="integer" aggregate="count" field="grand_total"/>
+    </dataset>
+    <preset code="customer_spending" area="foo" dataset="customer_orders" label="Customer spending"
+            sources="mysql" dateRange="last_30_days">
+        <metric code="orders"/>
+    </preset>
+</config>

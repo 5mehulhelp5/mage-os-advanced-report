@@ -1,0 +1,9 @@
+<!-- ko if: text -->
+<div class="advancedreport-info">
+    <span class="advancedreport-info-icon" aria-hidden="true"></span>
+    <span class="advancedreport-info-text" data-bind="text: text"></span>
+    <!-- ko if: configUrl -->
+    <a class="advancedreport-info-link" data-bind="attr: {href: configUrl}, text: labels.configure"></a>
+    <!-- /ko -->
+</div>
+<!-- /ko -->

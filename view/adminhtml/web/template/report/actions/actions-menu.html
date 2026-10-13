@@ -1,0 +1,19 @@
+<!-- ko if: visible -->
+<div class="advancedreport-dropdown advancedreport-actions-menu" data-bind="advancedreportDropdown: {open: menuOpen, align: 'right'}">
+    <button type="button" class="action-primary advancedreport-dropdown-toggle" aria-haspopup="true" aria-expanded="false" data-bind="text: labels.actions"></button>
+    <div class="advancedreport-dropdown-panel advancedreport-menu" hidden>
+        <!-- ko if: saved.canSave -->
+        <button type="button" class="advancedreport-menu-item" data-bind="click: openSaveAs, enable: !saved.busy(), text: labels.saveAs"></button>
+        <!-- ko if: saved.isOwned -->
+        <button type="button" class="advancedreport-menu-item" data-bind="click: update, enable: !saved.busy(), text: labels.update"></button>
+        <button type="button" class="advancedreport-menu-item" data-bind="click: remove, enable: !saved.busy(), text: labels.remove"></button>
+        <!-- /ko -->
+        <!-- /ko -->
+        <!-- ko if: exporter.visible -->
+        <button type="button" class="advancedreport-menu-item" data-bind="click: openDownload, text: labels.download"></button>
+        <!-- /ko -->
+    </div>
+    <!-- ko if: saved.canSave --><!-- ko template: {nodes: savedNodes, data: saved, templateEngine: $root.nativeTemplateEngine} --><!-- /ko --><!-- /ko -->
+    <!-- ko if: exporter.visible --><!-- ko template: {nodes: exportNodes, data: exporter, templateEngine: $root.nativeTemplateEngine} --><!-- /ko --><!-- /ko -->
+</div>
+<!-- /ko -->

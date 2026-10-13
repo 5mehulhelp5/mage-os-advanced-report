@@ -1,0 +1,62 @@
+.advancedreport-fields {
+    display: inline-flex;
+    gap: .8rem;
+
+    .advancedreport-options {
+        list-style: none;
+        margin: 0;
+        max-height: 30rem;
+        overflow-y: auto;
+        padding: 0;
+    }
+
+    .advancedreport-search {
+        margin-bottom: .8rem;
+        width: 100%;
+    }
+
+    .advancedreport-option {
+        align-items: center;
+        display: flex;
+        gap: .6rem;
+        justify-content: space-between;
+        padding: .3rem 0;
+
+        label {
+            align-items: center;
+            display: flex;
+            gap: .6rem;
+        }
+    }
+
+    .advancedreport-option-description {
+        color: #757575;
+    }
+
+    // Metric rows: checkbox, then label with its description underneath.
+    .advancedreport-metrics {
+        .advancedreport-dropdown-panel {
+            width: 32rem;
+        }
+
+        .advancedreport-option {
+            align-items: start;
+            column-gap: .6rem;
+            display: grid;
+            grid-template-columns: auto 1fr;
+        }
+
+        .advancedreport-option-description {
+            font-size: 1.2rem;
+            grid-column: 2;
+            line-height: 1.4;
+        }
+    }
+
+    .advancedreport-dropdown-footer {
+        border-top: 1px solid #e3e3e3;
+        color: #757575;
+        margin-top: .8rem;
+        padding-top: .8rem;
+    }
+}

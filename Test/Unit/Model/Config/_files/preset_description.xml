@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config>
+    <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview"
+            description="Revenue and orders over time">
+        <metric code="orders"/>
+    </preset>
+</config>

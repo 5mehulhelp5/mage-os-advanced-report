@@ -1,0 +1,10 @@
+<div class="advancedreport-export-modal-content" style="display: none" data-bind="advancedreportExportModal: registerModal">
+    <form method="post" data-bind="attr: {action: action}">
+        <input type="hidden" name="form_key" data-bind="value: formKey"/>
+        <input type="hidden" name="request" data-bind="value: requestJson"/>
+        <div class="admin__field admin__field-option">
+            <input type="checkbox" id="advancedreport-export-include-totals" class="admin__control-checkbox" name="include_totals" value="1" data-bind="checked: includeTotals"/>
+            <label class="admin__field-label" for="advancedreport-export-include-totals"><span data-bind="text: labels.totals"></span></label>
+        </div>
+    </form>
+</div>

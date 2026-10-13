@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<config>
+    <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview"
+            sources="mysql" compareTo="previous_period" dateRange="last_30_days">
+        <metric code="orders"/>
+        <dimension code="order_date" granularity="day"/>
+        <filter field="store_id" operator="in" value="1,2"/>
+        <sort by="orders" direction="desc"/>
+    </preset>
+</config>

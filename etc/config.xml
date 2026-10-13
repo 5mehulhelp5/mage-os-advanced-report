@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/config.xsd">
+    <default>
+        <mageos_advancedreport>
+            <general>
+                <enabled>1</enabled>
+            </general>
+            <sales>
+                <counted_statuses/>
+            </sales>
+            <catalog>
+                <dead_stock_days>90</dead_stock_days>
+                <report_attributes/>
+            </catalog>
+            <performance>
+                <connection_name>default</connection_name>
+                <max_rows>10000</max_rows>
+                <query_timeout_ms>30000</query_timeout_ms>
+                <cache_ttl_open_period>300</cache_ttl_open_period>
+                <cache_ttl_closed_period>86400</cache_ttl_closed_period>
+            </performance>
+        </mageos_advancedreport>
+    </default>
+</config>

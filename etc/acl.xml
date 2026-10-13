@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
+    <acl>
+        <resources>
+            <resource id="Magento_Backend::admin">
+                <resource id="Magento_Reports::report">
+                    <resource id="MageOS_AdvancedReport::reports" title="Advanced Report" translate="title" sortOrder="90">
+                        <resource id="MageOS_AdvancedReport::sales" title="Sales" translate="title" sortOrder="10" />
+                        <resource id="MageOS_AdvancedReport::catalog" title="Catalog" translate="title" sortOrder="20" />
+                        <resource id="MageOS_AdvancedReport::customers" title="Customers" translate="title" sortOrder="25" />
+                        <resource id="MageOS_AdvancedReport::saved_manage" title="Manage Saved Reports" translate="title" sortOrder="30" />
+                        <resource id="MageOS_AdvancedReport::saved_share" title="Share Saved Reports" translate="title" sortOrder="40" />
+                        <resource id="MageOS_AdvancedReport::export" title="Export Reports" translate="title" sortOrder="50" />
+                        <resource id="MageOS_AdvancedReport::config" title="Configuration" translate="title" sortOrder="60" />
+                    </resource>
+                </resource>
+            </resource>
+        </resources>
+    </acl>
+</config>

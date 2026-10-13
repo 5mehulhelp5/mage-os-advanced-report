@@ -1,0 +1,33 @@
+<div class="advancedreport-app">
+    <div class="advancedreport-notices">
+        <!-- ko if: notice -->
+        <div class="message" data-bind="css: {'message-success': notice().type === 'success', 'message-error': notice().type === 'error'}">
+            <span data-bind="text: notice().text"></span>
+            <button type="button" class="action-close advancedreport-notice-close" data-bind="click: dismissNotice, attr: {'aria-label': labels.close}">&times;</button>
+        </div>
+        <!-- /ko -->
+    </div>
+    <div class="message message-error" data-bind="visible: error, with: error">
+        <span data-bind="text: message"></span>
+        <button type="button" class="action-default" data-bind="visible: reload, click: $parent.reloadPage">
+            <span data-bind="text: labels.reload"></span>
+        </button>
+    </div>
+    <div class="advancedreport-toolbar">
+        <div class="advancedreport-toolbar-start" data-bind="foreach: regions.toolbar">
+            %CHILD%
+        </div>
+        <div class="advancedreport-toolbar-end" data-bind="foreach: regions.toolbarEnd">
+            %CHILD%
+        </div>
+    </div>
+    <div class="advancedreport-chips-row" data-bind="foreach: regions.chips">
+        %CHILD%
+    </div>
+    <div class="advancedreport-info-row" data-bind="foreach: regions.info">
+        %CHILD%
+    </div>
+    <div class="advancedreport-results" data-bind="css: {_loading: loading}, foreach: regions.results">
+        %CHILD%
+    </div>
+</div>

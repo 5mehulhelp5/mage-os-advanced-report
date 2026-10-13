@@ -1,0 +1,2 @@
+<!-- ko if: $data.nodes --><div data-bind="template: {nodes: $data.nodes, data: $data, templateEngine: $root.nativeTemplateEngine}"></div><!-- /ko -->
+<!-- ko ifnot: $data.nodes --><!-- ko template: {name: $data.template, data: $data} --><!-- /ko --><!-- /ko -->

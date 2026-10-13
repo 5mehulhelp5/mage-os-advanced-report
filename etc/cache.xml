@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Cache/etc/cache.xsd">
+    <type name="advanced_report" translate="label,description" instance="MageOS\AdvancedReport\Model\Cache\Type">
+        <label>Advanced Report</label>
+        <description>Advanced Report datasets, saved reports and query results cache</description>
+    </type>
+</config>

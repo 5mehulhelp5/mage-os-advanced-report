@@ -1,0 +1,90 @@
+.advancedreport-app {
+    .advancedreport-toolbar {
+        align-items: center;
+        background: #fff;
+        border-bottom: 1px solid #e3e3e3;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+        padding: 1rem 0;
+    }
+
+    .advancedreport-toolbar-start,
+    .advancedreport-toolbar-end {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .advancedreport-toolbar-end {
+        margin-left: auto;
+    }
+
+    .advancedreport-control {
+        margin-bottom: 0;
+
+        label,
+        select,
+        input,
+        button {
+            margin-right: 1rem;
+        }
+    }
+
+    .advancedreport-option {
+        display: inline-block;
+        margin-right: 1.5rem;
+    }
+
+    .advancedreport-status {
+        align-items: center;
+        display: flex;
+        gap: 1rem;
+    }
+
+    .advancedreport-badge {
+        background: #e3e3e3;
+        border-radius: 3px;
+        font-weight: 600;
+        padding: .2rem .8rem;
+    }
+
+    .advancedreport-cache {
+        color: #666;
+    }
+
+    .advancedreport-spinner {
+        animation: advancedreport-spin .8s linear infinite;
+        border: 2px solid #e3e3e3;
+        border-radius: 50%;
+        border-top-color: #514943;
+        display: inline-block;
+        height: 1.6rem;
+        width: 1.6rem;
+    }
+}
+
+.advancedreport-description {
+    color: #666;
+    margin-bottom: 1.5rem;
+}
+
+.advancedreport-notices .message {
+    position: relative;
+}
+
+.advancedreport-notice-close {
+    background: none;
+    border: 0;
+    cursor: pointer;
+    float: right;
+}
+
+@keyframes advancedreport-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

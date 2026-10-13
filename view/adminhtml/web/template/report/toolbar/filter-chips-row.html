@@ -1,0 +1,9 @@
+<div class="advancedreport-chips-bar" data-bind="visible: chips().length">
+    <ul class="advancedreport-chips" data-bind="foreach: chips">
+        <li class="advancedreport-chip">
+            <span data-bind="text: text"></span>
+            <button type="button" class="action-default" data-bind="click: $parent.remove, attr: {title: $parent.labels.remove, 'aria-label': $parent.labels.remove}">&times;</button>
+        </li>
+    </ul>
+    <a href="#" class="advancedreport-chips-clear" data-bind="click: clearAll, text: labels.clearAll"></a>
+</div>

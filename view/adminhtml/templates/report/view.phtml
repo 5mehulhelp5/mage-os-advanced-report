@@ -1,0 +1,29 @@
+<?php
+/**
+ * @var \Magento\Framework\View\Element\Template $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \MageOS\AdvancedReport\ViewModel\Exploration $viewModel
+ * @var \MageOS\AdvancedReport\ViewModel\Diagnostics $diagnostics
+ */
+$viewModel = $block->getData('view_model');
+$diagnostics = $block->getData('diagnostics');
+$description = $viewModel->getPresetDescription();
+?>
+<?php if ($description !== ''): ?>
+    <p class="advancedreport-description"><?= $escaper->escapeHtml($description) ?></p>
+<?php endif; ?>
+<div id="advancedreport-app" class="advancedreport-exploration"
+     data-mage-init="<?= $escaper->escapeHtmlAttr('{"MageOS_AdvancedReport/js/report/app":' . $viewModel->getJsConfig() . '}') ?>"></div>
+<?php if ($diagnostics->isVisible()): ?>
+    <details class="advancedreport-diagnostics advancedreport-card">
+        <summary><?= $escaper->escapeHtml(__('Diagnostics')) ?></summary>
+        <table class="admin__table-secondary">
+            <?php foreach ($diagnostics->getRows() as $label => $value): ?>
+                <tr>
+                    <th><?= $escaper->escapeHtml($label) ?></th>
+                    <td><?= $escaper->escapeHtml($value) ?></td>
+                </tr>
+            <?php endforeach; ?>
+        </table>
+    </details>
+<?php endif; ?>

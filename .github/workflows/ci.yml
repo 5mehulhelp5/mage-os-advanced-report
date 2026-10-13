@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  compute_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.supported-version.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: graycoreio/github-actions-magento2/supported-version@v8.11.0
+        id: supported-version
+  check-extension:
+    needs: compute_matrix
+    uses: graycoreio/github-actions-magento2/.github/workflows/check-extension.yaml@v8.11.0
+    with:
+      matrix: ${{ needs.compute_matrix.outputs.matrix }}
+    secrets:
+      composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+  quality:
+    name: Code quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.3' }
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer test:cs-fixer

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders" label="Orders" acl="MageOS_AdvancedReport::sales" area="sales">
+        <field code="is_first_order" label="Is first order" type="boolean">
+            <mysql expressionProvider="first_order"/>
+        </field>
+        <metric code="coverage_days" label="Coverage days" format="number" virtual="true"/>
+        <metric code="returns" label="Returns" format="money" aggregate="sum" field="grand_total" lowerIsBetter="true"/>
+    </dataset>
+    <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview"
+            alternateDimension="payment_method">
+        <metric code="returns"/>
+    </preset>
+</config>

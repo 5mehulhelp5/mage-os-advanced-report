@@ -1,0 +1,44 @@
+.advancedreport-actions-inner {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+}
+
+.advancedreport-refresh-action {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+}
+
+// Admin's `.page-actions button` extends the large-button styles to every nested button: reset them in panels.
+.advancedreport-dropdown-panel button {
+    float: none;
+    font-size: 1.4rem;
+    min-height: 0;
+    padding: .6rem 1.2rem;
+}
+
+.advancedreport-dropdown-panel .advancedreport-menu-item {
+    background: none;
+    border: 0;
+    display: block;
+    text-align: left;
+    width: 100%;
+
+    &:hover:not([disabled]) {
+        background: #f5f5f5;
+    }
+}
+
+.advancedreport-dropdown-panel.advancedreport-menu {
+    min-width: 16rem;
+    padding: .4rem 0;
+}
+
+.advancedreport-save-modal .admin__field {
+    margin-bottom: 1.5rem;
+}
+
+.advancedreport-export-modal .admin__field {
+    margin-bottom: 1.5rem;
+}

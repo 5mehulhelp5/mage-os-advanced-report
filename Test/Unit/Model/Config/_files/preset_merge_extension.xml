@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config>
+    <preset code="sales_overview">
+        <metric code="discount_rate"/>
+        <filter field="customer_group_id" operator="in" value="1,2,3"/>
+    </preset>
+</config>

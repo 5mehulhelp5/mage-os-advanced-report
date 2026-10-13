@@ -1,0 +1,190 @@
+.advancedreport-card {
+    background: #fff;
+    border: 1px solid #e3e3e3;
+    border-radius: 6px;
+    margin-bottom: 1.6rem;
+    padding: 1.6rem;
+}
+
+.advancedreport-diagnostics {
+    color: #757575;
+    font-size: 1.2rem;
+
+    summary {
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    table {
+        margin-top: 1rem;
+    }
+}
+
+.advancedreport-app {
+    .advancedreport-results {
+        position: relative;
+        transition: opacity .2s;
+
+        &._loading {
+            opacity: .55;
+            pointer-events: none;
+
+            &:after {
+                animation: advancedreport-spin .8s linear infinite;
+                border: 3px solid #e3e3e3;
+                border-radius: 50%;
+                border-top-color: #1979c3;
+                content: '';
+                height: 32px;
+                left: 50%;
+                margin: -16px 0 0 -16px;
+                position: absolute;
+                top: 120px;
+                width: 32px;
+                z-index: 2;
+            }
+        }
+    }
+
+    .advancedreport-chart {
+        height: 280px;
+        position: relative;
+    }
+
+    .advancedreport-table-warnings .message {
+        margin: 0 0 1rem;
+        // Keep the left padding Magento reserves for the message icon.
+        padding: .6rem 1rem .6rem 4.5rem;
+    }
+
+    .advancedreport-table-scroll {
+        max-height: 70vh;
+        overflow: auto;
+    }
+
+    .advancedreport-table {
+        border-collapse: collapse;
+        width: 100%;
+
+        th {
+            background: #fff;
+            border-bottom: 1px solid #e3e3e3;
+            color: #757575;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: .04em;
+            padding: .8rem 1rem;
+            position: sticky;
+            text-align: left;
+            text-transform: uppercase;
+            top: 0;
+            white-space: nowrap;
+            z-index: 1;
+
+            &.advancedreport-numeric {
+                text-align: right;
+            }
+        }
+
+        td {
+            border-bottom: 1px solid #f0f0f0;
+            padding: .8rem 1rem;
+        }
+
+        tbody tr:hover td {
+            background: #f7f9fb;
+        }
+
+        tfoot td {
+            border-bottom: 0;
+            border-top: 2px solid #e3e3e3;
+        }
+    }
+
+    .advancedreport-sort-arrow {
+        display: inline-block;
+        margin-left: .4rem;
+        width: .8rem;
+
+        th._ascend &:after {
+            content: '\2191';
+        }
+
+        th._descend &:after {
+            content: '\2193';
+        }
+    }
+
+    .advancedreport-numeric {
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    .advancedreport-totals td {
+        font-weight: 700;
+    }
+
+    .advancedreport-delta {
+        background: #f0f0f0;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        margin-left: .5rem;
+        padding: .1rem .6rem;
+    }
+
+    .advancedreport-delta-positive {
+        background: #e6f4e7;
+        color: #2e7d32;
+    }
+
+    .advancedreport-delta-negative {
+        background: #fbe9e9;
+        color: #c62828;
+    }
+
+    .advancedreport-delta-neutral {
+        color: #666;
+    }
+
+    .advancedreport-pager {
+        align-items: center;
+        display: flex;
+        gap: .6rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+
+    .advancedreport-pager-info {
+        color: #757575;
+        margin-right: .6rem;
+    }
+
+    .advancedreport-pager-btn {
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+        height: 3rem;
+        width: 3rem;
+
+        &:disabled {
+            cursor: default;
+            opacity: .4;
+        }
+
+        &._prev:after {
+            content: '\2039';
+        }
+
+        &._next:after {
+            content: '\203A';
+        }
+    }
+}
+
+@keyframes advancedreport-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

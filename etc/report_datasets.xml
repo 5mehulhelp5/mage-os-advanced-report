@@ -1,0 +1,744 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders" label="Orders" acl="MageOS_AdvancedReport::sales" area="sales">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <implicitFilter code="counted_status"/>
+
+        <join code="payment" table="sales_order_payment" alias="payment" type="left"
+              condition="payment.parent_id = main.entity_id"/>
+        <join code="billing_address" table="sales_order_address" alias="billing_address" type="left"
+              condition="billing_address.parent_id = main.entity_id AND billing_address.address_type = 'billing'"/>
+        <join code="shipping_address" table="sales_order_address" alias="shipping_address" type="left"
+              condition="shipping_address.parent_id = main.entity_id AND shipping_address.address_type = 'shipping'"/>
+        <join code="store" table="store" alias="store" type="left"
+              condition="store.store_id = main.store_id"/>
+
+        <!-- Reserved fields (drive date filtering/bucketing, store scope and counted statuses). -->
+        <field code="created_at" label="Created at" type="date">
+            <mysql expression="main.created_at"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="main.store_id"/>
+        </field>
+        <field code="status" label="Status" type="string">
+            <mysql expression="main.status"/>
+        </field>
+
+        <field code="order_id" label="Order ID" type="id">
+            <mysql expression="main.entity_id"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="main.customer_group_id"/>
+        </field>
+        <field code="is_first_order" label="Is first order" type="boolean">
+            <mysql expressionProvider="first_order"/>
+        </field>
+        <field code="gross_sales_amount" label="Gross sales amount" type="money"
+               description="Order subtotal, net of cancellations.">
+            <mysql expression="(COALESCE(main.base_subtotal, 0) - COALESCE(main.base_subtotal_canceled, 0))"/>
+        </field>
+        <field code="discount_amount" label="Discount amount" type="money"
+               description="Discount amount applied, net of cancellations.">
+            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)))"/>
+        </field>
+        <field code="returns_amount" label="Returns amount" type="money"
+               description="Subtotal and discount refunded via credit memos.">
+            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+        </field>
+        <field code="shipping_amount" label="Shipping amount" type="money"
+               description="Shipping amount charged, net of cancellations and refunds.">
+            <mysql expression="(COALESCE(main.base_shipping_amount, 0) - COALESCE(main.base_shipping_canceled, 0) - COALESCE(main.base_shipping_refunded, 0))"/>
+        </field>
+        <field code="tax_amount" label="Tax amount" type="money"
+               description="Tax amount charged, net of cancellations and refunds.">
+            <mysql expression="(COALESCE(main.base_tax_amount, 0) - COALESCE(main.base_tax_canceled, 0) - COALESCE(main.base_tax_refunded, 0))"/>
+        </field>
+        <field code="adjustment_amount" label="Adjustment amount" type="money"
+               description="Credit memo adjustment fees: extra refunded amount minus refund fees.">
+            <mysql expression="(COALESCE(main.base_adjustment_positive, 0) - COALESCE(main.base_adjustment_negative, 0))"/>
+        </field>
+        <field code="units_qty" label="Units" type="decimal">
+            <mysql expression="COALESCE(main.total_qty_ordered, 0)"/>
+        </field>
+        <field code="payment_method" label="Payment method" type="string">
+            <mysql expression="payment.method" joins="payment"/>
+        </field>
+        <field code="shipping_method" label="Shipping method" type="string">
+            <mysql expression="main.shipping_method"/>
+        </field>
+        <field code="coupon_code" label="Coupon code" type="string">
+            <mysql expression="main.coupon_code"/>
+        </field>
+        <field code="has_coupon" label="Has coupon" type="boolean"
+               description="Whether the order used a coupon code.">
+            <mysql expression="(main.coupon_code IS NOT NULL AND main.coupon_code &lt;&gt; '')"/>
+        </field>
+        <field code="billing_country" label="Billing country" type="string">
+            <mysql expression="billing_address.country_id" joins="billing_address"/>
+        </field>
+        <field code="shipping_country" label="Shipping country" type="string">
+            <mysql expression="shipping_address.country_id" joins="shipping_address"/>
+        </field>
+        <field code="website_id" label="Website" type="id">
+            <mysql expression="store.website_id" joins="store"/>
+        </field>
+        <field code="billing_postcode" label="Billing zipcode" type="string">
+            <mysql expression="UPPER(TRIM(billing_address.postcode))" joins="billing_address"/>
+        </field>
+        <field code="birth_year" label="Year of birth" type="integer">
+            <mysql expression="YEAR(main.customer_dob)"/>
+        </field>
+        <field code="birth_month" label="Month of birth" type="integer">
+            <mysql expression="MONTH(main.customer_dob)"/>
+        </field>
+        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+            <mysql expression="(DAYOFWEEK(main.customer_dob) - 1)"/>
+        </field>
+        <field code="gender" label="Gender" type="id">
+            <mysql expression="main.customer_gender"/>
+        </field>
+
+        <metric code="orders" label="Orders" format="integer" aggregate="count" field="order_id"
+                description="Number of orders placed."/>
+        <metric code="gross_sales" label="Gross sales" format="money" aggregate="sum" field="gross_sales_amount"
+                description="Order subtotal excluding tax, net of cancellations."/>
+        <metric code="discounts" label="Discounts" format="money" aggregate="sum" field="discount_amount"
+                lowerIsBetter="true"
+                description="Discount amount applied, net of cancellations. A lower value is an improvement."/>
+        <metric code="returns" label="Returns" format="money" aggregate="sum" field="returns_amount"
+                lowerIsBetter="true"
+                description="Subtotal and discount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date."/>
+        <metric code="net_sales" label="Net sales" format="money" formula="gross_sales - discounts - returns"
+                description="Gross sales minus discounts minus returns."/>
+        <metric code="shipping" label="Shipping" format="money" aggregate="sum" field="shipping_amount"
+                description="Shipping amount charged, net of cancellations and refunds."/>
+        <metric code="taxes" label="Taxes" format="money" aggregate="sum" field="tax_amount"
+                description="Tax amount charged, net of cancellations and refunds."/>
+        <metric code="adjustments" label="Adjustments" format="money" aggregate="sum" field="adjustment_amount"
+                description="Credit memo adjustment fees: extra refunded amount minus refund fees."/>
+        <metric code="total_sales" label="Total sales" format="money"
+                formula="net_sales + shipping + taxes - adjustments"
+                description="Net sales plus shipping plus taxes, minus credit memo adjustments."/>
+        <metric code="aov" label="Average order value" format="money" formula="net_sales / orders"
+                description="Average order value: net sales divided by the number of orders."/>
+        <metric code="units" label="Units" format="number" aggregate="sum" field="units_qty"
+                description="Total quantity of items ordered."/>
+        <metric code="new_customer_orders" label="New customer orders" format="integer" aggregate="sum"
+                field="is_first_order"
+                description="Orders placed by a customer without a prior order. Limitation: a guest checkout later followed by a registered account for the same person is counted as a new customer twice."/>
+        <metric code="returning_customer_orders" label="Returning customer orders" format="integer"
+                formula="orders - new_customer_orders"
+                description="Orders minus new customer orders."/>
+
+        <dimension code="order_date" label="Order date" field="created_at" granularities="hour,day,week,month,year"/>
+        <dimension code="order_hour" label="Order hour" field="created_at"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\HourOfDayLabelResolver"/>
+        <dimension code="order_weekday" label="Order weekday" field="created_at"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="website_id" label="Website" field="website_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="customer_type" label="Customer type" field="is_first_order"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerTypeLabelResolver"/>
+        <dimension code="billing_country" label="Billing country" field="billing_country"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CountryLabelResolver"/>
+        <dimension code="shipping_country" label="Shipping country" field="shipping_country"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CountryLabelResolver"/>
+        <dimension code="payment_method" label="Payment method" field="payment_method"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\PaymentMethodLabelResolver"/>
+        <dimension code="shipping_method" label="Shipping method" field="shipping_method"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\ShippingMethodLabelResolver"/>
+        <dimension code="coupon_code" label="Coupon code" field="coupon_code"/>
+        <dimension code="billing_postcode" label="Billing zipcode" field="billing_postcode"/>
+        <dimension code="birth_year" label="Year of birth" field="birth_year"/>
+        <dimension code="birth_month" label="Month of birth" field="birth_month"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\MonthLabelResolver"/>
+        <dimension code="birth_weekday" label="Day of the week of birth" field="birth_weekday"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver"/>
+        <dimension code="gender" label="Gender" field="gender"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\GenderLabelResolver"/>
+    </dataset>
+
+    <dataset code="customer_orders" label="Customer orders" acl="MageOS_AdvancedReport::customers" area="customers">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <implicitFilter code="counted_status"/>
+
+        <join code="billing_address" table="sales_order_address" alias="billing_address" type="left"
+              condition="billing_address.parent_id = main.entity_id AND billing_address.address_type = 'billing'"/>
+        <join code="store" table="store" alias="store" type="left"
+              condition="store.store_id = main.store_id"/>
+
+        <!-- Reserved fields (drive date filtering/bucketing, store scope and counted statuses). -->
+        <field code="created_at" label="Created at" type="date">
+            <mysql expression="main.created_at"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="main.store_id"/>
+        </field>
+        <field code="status" label="Status" type="string">
+            <mysql expression="main.status"/>
+        </field>
+
+        <field code="order_id" label="Order ID" type="id">
+            <mysql expression="main.entity_id"/>
+        </field>
+        <field code="customer_key" label="Customer email" type="string"
+               description="Lowercased, trimmed order email: identifies the same customer across guest and registered orders.">
+            <mysql expression="LOWER(TRIM(main.customer_email))"/>
+        </field>
+        <field code="customer_id" label="Customer ID" type="id"
+               description="Customer account ID of the order; empty for guest orders.">
+            <mysql expression="main.customer_id"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="main.customer_group_id"/>
+        </field>
+        <field code="website_id" label="Website" type="id">
+            <mysql expression="store.website_id" joins="store"/>
+        </field>
+        <field code="billing_country" label="Billing country" type="string">
+            <mysql expression="billing_address.country_id" joins="billing_address"/>
+        </field>
+        <field code="gross_sales_amount" label="Gross sales amount" type="money"
+               description="Order subtotal, net of cancellations.">
+            <mysql expression="(COALESCE(main.base_subtotal, 0) - COALESCE(main.base_subtotal_canceled, 0))"/>
+        </field>
+        <field code="discount_amount" label="Discount amount" type="money"
+               description="Discount amount applied, net of cancellations.">
+            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)))"/>
+        </field>
+        <field code="returns_amount" label="Returns amount" type="money"
+               description="Subtotal and discount refunded via credit memos.">
+            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+        </field>
+        <field code="shipping_amount" label="Shipping amount" type="money"
+               description="Shipping amount charged, net of cancellations and refunds.">
+            <mysql expression="(COALESCE(main.base_shipping_amount, 0) - COALESCE(main.base_shipping_canceled, 0) - COALESCE(main.base_shipping_refunded, 0))"/>
+        </field>
+        <field code="tax_amount" label="Tax amount" type="money"
+               description="Tax amount charged, net of cancellations and refunds.">
+            <mysql expression="(COALESCE(main.base_tax_amount, 0) - COALESCE(main.base_tax_canceled, 0) - COALESCE(main.base_tax_refunded, 0))"/>
+        </field>
+        <field code="adjustment_amount" label="Adjustment amount" type="money"
+               description="Credit memo adjustment fees: extra refunded amount minus refund fees.">
+            <mysql expression="(COALESCE(main.base_adjustment_positive, 0) - COALESCE(main.base_adjustment_negative, 0))"/>
+        </field>
+        <field code="days_since_order" label="Days since order" type="integer"
+               description="Whole days elapsed between the order and today.">
+            <mysql expression="DATEDIFF(UTC_TIMESTAMP(), main.created_at)"/>
+        </field>
+        <field code="wait_days" label="Wait days" type="decimal"
+               description="Days between the order and its first shipment; empty for unshipped orders.">
+            <mysql expressionProvider="first_shipment_wait"/>
+        </field>
+        <field code="billing_postcode" label="Billing zipcode" type="string">
+            <mysql expression="UPPER(TRIM(billing_address.postcode))" joins="billing_address"/>
+        </field>
+        <field code="birth_year" label="Year of birth" type="integer">
+            <mysql expression="YEAR(main.customer_dob)"/>
+        </field>
+        <field code="birth_month" label="Month of birth" type="integer">
+            <mysql expression="MONTH(main.customer_dob)"/>
+        </field>
+        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+            <mysql expression="(DAYOFWEEK(main.customer_dob) - 1)"/>
+        </field>
+        <field code="gender" label="Gender" type="id">
+            <mysql expression="main.customer_gender"/>
+        </field>
+
+        <metric code="orders" label="Orders" format="integer" aggregate="count" field="order_id"
+                description="Number of orders placed."/>
+        <metric code="unique_customers" label="Unique customers" format="integer" aggregate="count_distinct"
+                field="customer_key"
+                description="Number of distinct customers (by lowercased order email) who placed orders."/>
+        <metric code="gross_sales" label="Gross sales" format="money" aggregate="sum" field="gross_sales_amount"
+                hidden="true" description="Helper metric for total spent: order subtotal, net of cancellations."/>
+        <metric code="discounts" label="Discounts" format="money" aggregate="sum" field="discount_amount"
+                hidden="true" description="Helper metric for total spent: discount amount applied, net of cancellations."/>
+        <metric code="returns" label="Returns" format="money" aggregate="sum" field="returns_amount"
+                hidden="true" description="Helper metric for total spent: subtotal and discount refunded via credit memos."/>
+        <metric code="shipping" label="Shipping" format="money" aggregate="sum" field="shipping_amount"
+                hidden="true" description="Helper metric for total spent: shipping amount charged, net of cancellations and refunds."/>
+        <metric code="taxes" label="Taxes" format="money" aggregate="sum" field="tax_amount"
+                hidden="true" description="Helper metric for total spent: tax amount charged, net of cancellations and refunds."/>
+        <metric code="adjustments" label="Adjustments" format="money" aggregate="sum" field="adjustment_amount"
+                hidden="true" description="Helper metric for total spent: credit memo adjustment fees."/>
+        <metric code="total_spent" label="Total spent" format="money"
+                formula="gross_sales - discounts - returns + shipping + taxes - adjustments"
+                description="Net sales plus shipping plus taxes, minus credit memo adjustments."/>
+        <metric code="avg_spent" label="Average spent per order" format="money"
+                formula="(gross_sales - discounts - returns + shipping + taxes - adjustments) / orders"
+                description="Total spent divided by the number of orders."/>
+        <metric code="avg_shipping_cost" label="Average shipping cost" format="money" formula="shipping / orders"
+                description="Shipping amount divided by the number of orders."/>
+        <metric code="days_since_last_order" label="Days since last order" format="integer" aggregate="min"
+                field="days_since_order" lowerIsBetter="true"
+                description="Days since the most recent order, measured from today, considering only orders in the selected period. A lower value is an improvement."/>
+        <metric code="avg_wait_days" label="Average wait days" format="number" aggregate="avg" field="wait_days"
+                lowerIsBetter="true"
+                description="Average days between the order and its first shipment. Unshipped orders are excluded; orders with multiple shipments use the first shipment. A lower value is an improvement."/>
+
+        <dimension code="customer" label="Customer" field="customer_key"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerLabelResolver"/>
+        <dimension code="order_date" label="Order date" field="created_at" granularities="hour,day,week,month,year"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="website_id" label="Website" field="website_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="billing_country" label="Billing country" field="billing_country"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CountryLabelResolver"/>
+        <dimension code="billing_postcode" label="Billing zipcode" field="billing_postcode"/>
+        <dimension code="birth_year" label="Year of birth" field="birth_year"/>
+        <dimension code="birth_month" label="Month of birth" field="birth_month"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\MonthLabelResolver"/>
+        <dimension code="birth_weekday" label="Day of the week of birth" field="birth_weekday"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver"/>
+        <dimension code="gender" label="Gender" field="gender"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\GenderLabelResolver"/>
+    </dataset>
+
+    <dataset code="customers" label="Customers" acl="MageOS_AdvancedReport::customers" area="customers">
+        <source name="mysql" table="customer_entity" alias="main"/>
+        <join code="default_billing_address" table="customer_address_entity" alias="default_billing_address" type="left"
+              condition="default_billing_address.entity_id = main.default_billing"/>
+
+        <!-- Reserved fields (drive date filtering/bucketing and store scope). -->
+        <field code="created_at" label="Created at" type="date">
+            <mysql expression="main.created_at"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="main.store_id"/>
+        </field>
+
+        <field code="customer_id" label="Customer ID" type="id">
+            <mysql expression="main.entity_id"/>
+        </field>
+        <field code="website_id" label="Website" type="id">
+            <mysql expression="main.website_id"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="main.group_id"/>
+        </field>
+        <field code="billing_postcode" label="Billing zipcode" type="string">
+            <mysql expression="UPPER(TRIM(default_billing_address.postcode))" joins="default_billing_address"/>
+        </field>
+        <field code="birth_year" label="Year of birth" type="integer">
+            <mysql expression="YEAR(main.dob)"/>
+        </field>
+        <field code="birth_month" label="Month of birth" type="integer">
+            <mysql expression="MONTH(main.dob)"/>
+        </field>
+        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+            <mysql expression="(DAYOFWEEK(main.dob) - 1)"/>
+        </field>
+        <field code="gender" label="Gender" type="id">
+            <mysql expression="main.gender"/>
+        </field>
+
+        <metric code="registrations" label="Registrations" format="integer" aggregate="count" field="customer_id"
+                description="Number of customer accounts created. Limitation: accounts created by an admin or whose store was deleted are excluded when specific stores are selected."/>
+
+        <dimension code="registration_date" label="Registration date" field="created_at"
+                   granularities="day,week,month,year"/>
+        <dimension code="website_id" label="Website" field="website_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="billing_postcode" label="Billing zipcode" field="billing_postcode"/>
+        <dimension code="birth_year" label="Year of birth" field="birth_year"/>
+        <dimension code="birth_month" label="Month of birth" field="birth_month"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\MonthLabelResolver"/>
+        <dimension code="birth_weekday" label="Day of the week of birth" field="birth_weekday"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver"/>
+        <dimension code="gender" label="Gender" field="gender"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\GenderLabelResolver"/>
+    </dataset>
+
+    <dataset code="sales_items" label="Order items" acl="MageOS_AdvancedReport::sales" area="catalog">
+        <source name="mysql" table="sales_order_item" alias="main"/>
+        <implicitFilter code="top_level_item"/>
+        <implicitFilter code="counted_status"/>
+
+        <!--
+            "order" is mandatory: reserved fields (created_at, store_id, status) map here
+            because sales_order has the indexed created_at/store_id/status columns, while
+            sales_order_item has none of them.
+        -->
+        <join code="order" table="sales_order" alias="order" type="inner"
+              condition="order.entity_id = main.order_id"/>
+        <!--
+            Configurable parents only: the order_id term uses the native
+            SALES_ORDER_ITEM_ORDER_ID index (there is no index on parent_item_id), and the
+            product_type term prevents bundle parents (N children) from multiplying every
+            main.* sum by N.
+        -->
+        <join code="child" table="sales_order_item" alias="child" type="left"
+              condition="child.order_id = main.order_id AND child.parent_item_id = main.item_id AND main.product_type = 'configurable'"/>
+        <join code="parent_product" table="catalog_product_entity" alias="parent_product" type="left"
+              condition="parent_product.entity_id = main.product_id"/>
+        <join code="category" table="catalog_category_product" alias="category" type="left"
+              condition="category.product_id = main.product_id"/>
+
+        <!-- Reserved fields, mapped to the order row so the indexed sales_order columns drive the query. -->
+        <field code="created_at" label="Created at" type="date">
+            <mysql expression="order.created_at" joins="order"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="order.store_id" joins="order"/>
+        </field>
+        <field code="status" label="Status" type="string">
+            <mysql expression="order.status" joins="order"/>
+        </field>
+
+        <field code="item_id" label="Item ID" type="id">
+            <mysql expression="main.item_id"/>
+        </field>
+        <field code="order_id" label="Order ID" type="id">
+            <mysql expression="main.order_id"/>
+        </field>
+        <field code="product_id" label="Product ID" type="id">
+            <mysql expression="main.product_id"/>
+        </field>
+        <field code="sku" label="SKU" type="string" description="Simple SKU of the ordered item.">
+            <mysql expression="main.sku"/>
+        </field>
+        <field code="parent_sku" label="Parent SKU" type="string"
+               description="SKU of the configurable parent, when the ordered item is a configurable child.">
+            <mysql expression="parent_product.sku" joins="parent_product"/>
+        </field>
+        <field code="category_id" label="Category ID" type="id">
+            <mysql expression="category.category_id" joins="category"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="order.customer_group_id" joins="order"/>
+        </field>
+        <field code="unit_cost" label="Unit cost" type="money"
+               description="Base cost of one unit: the child (simple) row's cost when the parent row is a configurable, otherwise the row's own cost.">
+            <mysql expression="COALESCE(child.base_cost, main.base_cost)" joins="child"/>
+        </field>
+        <field code="has_cost" label="Has cost" type="boolean"
+               description="Whether the resolved unit cost is known (not null).">
+            <mysql expression="(COALESCE(child.base_cost, main.base_cost) IS NOT NULL)" joins="child"/>
+        </field>
+        <field code="cost_amount" label="Cost amount" type="money"
+               description="Unit cost multiplied by units sold (ordered, net of cancellations and refunds).">
+            <mysql expression="(COALESCE(child.base_cost, main.base_cost) * (COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_canceled, 0) - COALESCE(main.qty_refunded, 0)))"
+                   joins="child"/>
+        </field>
+        <field code="qty_net" label="Units ordered, net" type="decimal"
+               description="Quantity ordered net of cancellations.">
+            <mysql expression="(COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_canceled, 0))"/>
+        </field>
+        <field code="qty_refunded_qty" label="Units refunded" type="decimal">
+            <mysql expression="COALESCE(main.qty_refunded, 0)"/>
+        </field>
+        <field code="qty_shipped_qty" label="Units shipped" type="decimal"
+               description="Quantity shipped.">
+            <mysql expression="COALESCE(main.qty_shipped, 0)"/>
+        </field>
+        <field code="qty_to_ship_qty" label="Units to ship" type="decimal"
+               description="Quantity ordered and not yet shipped, refunded or canceled; virtual items and bundles shipped separately excluded.">
+            <mysql expression="(CASE WHEN main.is_virtual = 1 THEN 0 WHEN main.product_type = 'bundle' AND (CASE WHEN JSON_VALID(main.product_options) THEN JSON_UNQUOTE(JSON_EXTRACT(main.product_options, '$.shipment_type')) END) = '1' THEN 0 ELSE GREATEST(COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_shipped, 0) - COALESCE(main.qty_refunded, 0) - COALESCE(main.qty_canceled, 0), 0) END)"/>
+        </field>
+        <field code="gross_sales_amount" label="Gross sales amount" type="money"
+               description="Row total, excluding tax.">
+            <mysql expression="COALESCE(main.base_row_total, 0)"/>
+        </field>
+        <field code="discount_amount" label="Discount amount" type="money">
+            <mysql expression="ABS(COALESCE(main.base_discount_amount, 0))"/>
+        </field>
+        <field code="returns_amount" label="Returns amount" type="money"
+               description="Amount refunded via credit memos, net of refunded discount.">
+            <mysql expression="(COALESCE(main.base_amount_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+        </field>
+        <field code="shipment_count" label="Shipment count" type="integer"
+               description="Number of shipments containing the item (or its configurable child).">
+            <mysql expressionProvider="shipment_count"/>
+        </field>
+        <field code="credit_memo_count" label="Credit memo count" type="integer"
+               description="Number of non-canceled credit memos containing the item (or its configurable child).">
+            <mysql expressionProvider="credit_memo_count"/>
+        </field>
+
+        <metric code="units_sold" label="Units sold" format="number" aggregate="sum" field="qty_net"
+                description="Quantity ordered, net of cancellations."/>
+        <metric code="units_refunded" label="Units refunded" format="number" aggregate="sum"
+                field="qty_refunded_qty" lowerIsBetter="true"
+                description="Quantity refunded via credit memos. A lower value is an improvement."/>
+        <metric code="units_shipped" label="Units shipped" format="number" aggregate="sum"
+                field="qty_shipped_qty"
+                description="Quantity shipped. Limitation: shipped units are attributed to the original order date, not the shipment date; bundle products shipped separately are not counted."/>
+        <metric code="units_to_ship" label="Units to ship" format="number" aggregate="sum"
+                field="qty_to_ship_qty" lowerIsBetter="true"
+                description="Quantity ordered and not yet shipped, refunded or canceled (virtual items and bundle products shipped separately excluded). A lower value is an improvement. Limitation: units are attributed to the original order date, so only orders placed in the selected period are included."/>
+        <metric code="gross_sales" label="Gross sales" format="money" aggregate="sum" field="gross_sales_amount"
+                description="Row total, excluding tax. Configurable products are counted as a single line (bundle = single line)."/>
+        <metric code="discounts" label="Discounts" format="money" aggregate="sum" field="discount_amount"
+                lowerIsBetter="true"
+                description="Discount amount applied to the item. A lower value is an improvement."/>
+        <metric code="returns" label="Returns" format="money" aggregate="sum" field="returns_amount"
+                lowerIsBetter="true"
+                description="Amount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date."/>
+        <metric code="net_sales" label="Net sales" format="money" formula="gross_sales - discounts - returns"
+                description="Gross sales minus discounts minus returns."/>
+        <metric code="cost" label="Cost" format="money" aggregate="sum" field="cost_amount" condition="has_cost"
+                description="Unit cost multiplied by units sold, only over rows with a known cost."/>
+        <metric code="gross_margin" label="Gross margin" format="money" formula="net_sales - cost"
+                description="Net sales minus cost."/>
+        <metric code="margin_pct" label="Margin %" format="percent" formula="gross_margin / net_sales"
+                description="Gross margin as a percentage of net sales."/>
+        <metric code="return_rate" label="Return rate" format="percent" formula="returns / gross_sales"
+                lowerIsBetter="true"
+                description="Returns as a percentage of gross sales. A lower value is an improvement."/>
+        <metric code="shipments" label="Shipments" format="integer" aggregate="sum" field="shipment_count"
+                description="Number of shipments containing the product. Limitation: shipments are attributed to the original order date, not the shipment date."/>
+        <metric code="credit_memos" label="Credit memos" format="integer" aggregate="sum" field="credit_memo_count"
+                lowerIsBetter="true"
+                description="Number of credit memos containing the product, excluding canceled credit memos. A lower value is an improvement. Limitation: credit memos are attributed to the original order date, not the credit memo date."/>
+        <metric code="orders" label="Orders" format="integer" aggregate="count_distinct" field="order_id"
+                description="Number of distinct orders contributing item rows."/>
+        <metric code="has_cost_rows" label="Rows with cost" format="integer" aggregate="sum" field="has_cost"
+                hidden="true" description="Helper metric for cost_coverage: number of item rows with a known unit cost."/>
+        <metric code="rows" label="Rows" format="integer" aggregate="count" field="item_id" hidden="true"
+                description="Helper metric for cost_coverage: total number of item rows."/>
+        <metric code="cost_coverage" label="Cost coverage" format="percent" formula="has_cost_rows / rows"
+                description="Share of item rows with a known unit cost."/>
+
+        <dimension code="order_date" label="Order date" field="created_at" granularities="hour,day,week,month,year"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="parent_sku" label="Parent SKU" field="parent_sku"/>
+        <dimension code="sku" label="SKU" field="sku"/>
+        <dimension code="product_id" label="Product" field="product_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
+        <dimension code="category_id" label="Category" field="category_id" nonAdditive="true"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CategoryLabelResolver"/>
+    </dataset>
+
+    <!--
+        Current stock (MySQL only, dateless: no store scope, no date filtering). The provider
+        (task 029) selects one row per stock item and wraps it as a derived table aliased
+        "main" (task 022), with the fixed column aliases referenced by every field below.
+    -->
+    <dataset code="catalog_stock" label="Stock" acl="MageOS_AdvancedReport::catalog" area="catalog" dateless="true">
+        <source name="mysql" provider="MageOS\AdvancedReport\Model\Stock\StockSelectProvider"/>
+
+        <field code="qty" label="Quantity" type="decimal">
+            <mysql expression="main.qty"/>
+        </field>
+        <field code="cost" label="Cost" type="money">
+            <mysql expression="main.cost"/>
+        </field>
+        <field code="price" label="Price" type="money">
+            <mysql expression="main.price"/>
+        </field>
+        <field code="product_id" label="Product ID" type="id">
+            <mysql expression="main.product_id"/>
+        </field>
+        <field code="sku" label="SKU" type="string">
+            <mysql expression="main.sku"/>
+        </field>
+        <field code="source_code" label="Source" type="string">
+            <mysql expression="main.source_code"/>
+        </field>
+        <field code="is_enabled" label="Is enabled" type="boolean">
+            <mysql expression="main.is_enabled"/>
+        </field>
+        <field code="in_stock" label="In stock" type="boolean" description="Whether the quantity on hand is greater than zero.">
+            <mysql expression="(main.qty > 0)"/>
+        </field>
+        <field code="value_cost" label="Stock value (cost)" type="money">
+            <mysql expression="(main.qty * COALESCE(main.cost, 0))"/>
+        </field>
+        <field code="value_retail" label="Stock value (retail)" type="money">
+            <mysql expression="(main.qty * COALESCE(main.price, 0))"/>
+        </field>
+
+        <metric code="qty_on_hand" label="Qty on hand" format="number" aggregate="sum" field="qty"
+                description="Total quantity on hand across sources."/>
+        <metric code="stock_value_cost" label="Stock value (cost)" format="money" aggregate="sum"
+                field="value_cost" description="Inventory value at cost."/>
+        <metric code="stock_value_retail" label="Stock value (retail)" format="money" aggregate="sum"
+                field="value_retail" description="Inventory value at retail price."/>
+        <metric code="skus_in_stock" label="SKUs in stock" format="integer" aggregate="count_distinct"
+                field="product_id" condition="in_stock"
+                description="Number of distinct SKUs with a quantity on hand greater than zero."/>
+        <!-- Virtual metrics: produced only by the low_stock_coverage preset query. -->
+        <metric code="units_sold_30d" label="Units sold (30 days)" format="number" virtual="true"
+                description="Units sold over the last 30 days."/>
+        <metric code="avg_daily_sales" label="Avg daily sales" format="number" virtual="true"
+                description="Units sold over the last 30 days divided by 30."/>
+        <metric code="coverage_days" label="Coverage (days)" format="number" virtual="true"
+                description="Days the current stock lasts at the average daily sales; empty when there are no sales."/>
+        <!-- Virtual metric: produced only by the dead_stock preset query. -->
+        <metric code="days_since_last_sale" label="Days since last sale" format="number" virtual="true"
+                description="Days since the last counted sale; empty when the product was never sold."/>
+
+        <dimension code="sku" label="SKU" field="sku"/>
+        <dimension code="product_id" label="Product" field="product_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
+        <dimension code="source_code" label="Source" field="source_code"/>
+    </dataset>
+
+    <!-- Sales presets (area sales, dataset sales_orders). -->
+    <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview" description="Orders, revenue, discounts and average order value over time, compared with the previous period." dateRange="last_30_days" compareTo="previous_period" sources="mysql">
+        <metric code="orders"/>
+        <metric code="gross_sales"/>
+        <metric code="discounts"/>
+        <metric code="returns"/>
+        <metric code="net_sales"/>
+        <metric code="shipping"/>
+        <metric code="taxes"/>
+        <metric code="adjustments"/>
+        <metric code="total_sales"/>
+        <metric code="aov"/>
+        <metric code="units"/>
+        <metric code="new_customer_orders"/>
+        <metric code="returning_customer_orders"/>
+        <dimension code="order_date" granularity="day"/>
+    </preset>
+
+    <preset code="sales_by_payment_method" area="sales" dataset="sales_orders" label="Sales by payment method" description="Orders, net sales and average order value for each payment method." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <metric code="aov"/>
+        <dimension code="payment_method"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="sales_by_shipping_method" area="sales" dataset="sales_orders" label="Sales by shipping method" description="Orders, net sales and shipping amounts for each shipping method." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <metric code="shipping"/>
+        <dimension code="shipping_method"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="sales_by_shipping_country" area="sales" dataset="sales_orders" label="Sales by shipping country" description="Orders and net sales by shipping destination country." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <dimension code="shipping_country"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="sales_by_customer_group" area="sales" dataset="sales_orders" label="Sales by customer group" description="Orders, net sales and average order value for each customer group." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <metric code="aov"/>
+        <dimension code="customer_group_id"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="new_vs_returning" area="sales" dataset="sales_orders" label="New vs returning customers" description="First-time buyers compared with returning customers." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <metric code="aov"/>
+        <dimension code="customer_type"/>
+    </preset>
+
+    <preset code="sales_by_hour" area="sales" dataset="sales_orders" label="Sales by hour of day" description="Which hours of the day bring the most orders and sales." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <dimension code="order_hour"/>
+    </preset>
+
+    <preset code="sales_by_weekday" area="sales" dataset="sales_orders" label="Sales by weekday" description="Which days of the week bring the most orders and sales." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="net_sales"/>
+        <dimension code="order_weekday"/>
+    </preset>
+
+    <preset code="coupon_performance" area="sales" dataset="sales_orders" label="Coupon performance" description="Orders, discounts and net sales generated by each coupon code." dateRange="last_30_days" sources="mysql">
+        <metric code="orders"/>
+        <metric code="discounts"/>
+        <metric code="net_sales"/>
+        <dimension code="coupon_code"/>
+        <filter field="has_coupon" operator="eq" value="1"/>
+        <sort by="orders" direction="desc"/>
+    </preset>
+
+    <!-- Catalog presets (area catalog). -->
+    <preset code="product_performance" area="catalog" dataset="sales_items" label="Product performance" description="Units sold, net sales, margin and return rate for each product." dateRange="last_30_days" sources="mysql" alternateDimension="sku">
+        <metric code="units_sold"/>
+        <metric code="net_sales"/>
+        <metric code="gross_margin"/>
+        <metric code="return_rate"/>
+        <dimension code="parent_sku"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="sales_by_category" area="catalog" dataset="sales_items" label="Sales by category" description="Units sold and net sales for each product category." dateRange="last_30_days" sources="mysql">
+        <metric code="units_sold"/>
+        <metric code="net_sales"/>
+        <dimension code="category_id"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <!-- The placeholder is replaced by attr_<first report attribute> (FirstReportAttributePresetExtender). -->
+    <preset code="sales_by_attribute" area="catalog" dataset="sales_items" label="Sales by attribute" description="Units sold and net sales grouped by a product attribute." dateRange="last_30_days" sources="mysql">
+        <metric code="units_sold"/>
+        <metric code="net_sales"/>
+        <dimension code="{first_report_attribute}"/>
+        <sort by="net_sales" direction="desc"/>
+    </preset>
+
+    <preset code="stock_value" area="catalog" dataset="catalog_stock" label="Stock value" description="Quantity on hand and stock value at cost and retail price, per SKU and source." sources="mysql">
+        <metric code="qty_on_hand"/>
+        <metric code="stock_value_cost"/>
+        <metric code="stock_value_retail"/>
+        <dimension code="sku"/>
+        <dimension code="source_code"/>
+        <sort by="stock_value_cost" direction="desc"/>
+    </preset>
+
+    <preset code="low_stock_coverage" area="catalog" dataset="catalog_stock" label="Low stock with coverage" description="Products about to run out, with days of coverage based on recent sales." sources="mysql" presetQuery="MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery">
+        <metric code="qty_on_hand"/>
+        <metric code="units_sold_30d"/>
+        <metric code="avg_daily_sales"/>
+        <metric code="coverage_days"/>
+        <dimension code="sku"/>
+        <sort by="coverage_days" direction="asc"/>
+    </preset>
+
+    <preset code="dead_stock" area="catalog" dataset="catalog_stock" label="Dead stock" description="Products in stock that have not sold for a long time, with the value tied up." sources="mysql" presetQuery="MageOS\AdvancedReport\Model\Preset\DeadStockQuery">
+        <metric code="qty_on_hand"/>
+        <metric code="stock_value_cost"/>
+        <metric code="days_since_last_sale"/>
+        <dimension code="sku"/>
+        <sort by="stock_value_cost" direction="desc"/>
+    </preset>
+
+    <preset code="never_sold" area="catalog" dataset="catalog_stock" label="Never sold" description="Products in stock that have never been sold." sources="mysql" presetQuery="MageOS\AdvancedReport\Model\Preset\NeverSoldQuery">
+        <metric code="qty_on_hand"/>
+        <metric code="stock_value_cost"/>
+        <dimension code="sku"/>
+        <sort by="stock_value_cost" direction="desc"/>
+    </preset>
+
+    <!-- Customer presets (area customers). -->
+    <preset code="customer_value" area="customers" dataset="customer_orders" label="Customer value" description="Spending, order frequency, shipping cost and delivery waiting time for each customer." dateRange="year_to_date" sources="mysql">
+        <metric code="orders"/>
+        <metric code="total_spent"/>
+        <metric code="avg_spent"/>
+        <metric code="avg_shipping_cost"/>
+        <metric code="avg_wait_days"/>
+        <metric code="days_since_last_order"/>
+        <dimension code="customer"/>
+        <sort by="total_spent" direction="desc"/>
+    </preset>
+
+    <preset code="new_customer_registrations" area="customers" dataset="customers" label="New customer registrations" description="New customer accounts per day, compared with the previous period." dateRange="last_30_days" compareTo="previous_period" sources="mysql">
+        <metric code="registrations"/>
+        <dimension code="registration_date" granularity="day"/>
+    </preset>
+</config>

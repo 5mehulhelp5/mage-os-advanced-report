@@ -1,0 +1,19 @@
+<div class="advancedreport-save-modal-content" style="display: none" data-bind="advancedreportSaveModal: registerModal">
+    <form data-bind="submit: saveAs">
+        <!-- ko if: modalMessage -->
+        <div class="message message-error"><div data-bind="text: modalMessage().text"></div></div>
+        <!-- /ko -->
+        <div class="admin__field">
+            <label class="admin__field-label"><span data-bind="text: labels.name"></span></label>
+            <div class="admin__field-control">
+                <input type="text" class="admin__control-text" maxlength="255" data-bind="textInput: name"/>
+            </div>
+        </div>
+        <!-- ko if: canShare -->
+        <div class="admin__field admin__field-option">
+            <input type="checkbox" class="admin__control-checkbox" id="advancedreport-save-share" data-bind="checked: shared"/>
+            <label class="admin__field-label" for="advancedreport-save-share" data-bind="text: labels.share"></label>
+        </div>
+        <!-- /ko -->
+    </form>
+</div>

@@ -1,0 +1,188 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="MageOS\AdvancedReport\Model\Query\ClockInterface" type="MageOS\AdvancedReport\Model\Query\Clock" />
+    <preference for="MageOS\AdvancedReport\Api\Data\ReportResultInterface" type="MageOS\AdvancedReport\Model\Query\ReportResult" />
+    <preference for="MageOS\AdvancedReport\Api\ReportRunnerInterface" type="MageOS\AdvancedReport\Model\Query\ReportRunner" />
+    <preference for="MageOS\AdvancedReport\Api\Data\SavedReportInterface" type="MageOS\AdvancedReport\Model\SavedReport\SavedReport" />
+    <preference for="MageOS\AdvancedReport\Api\Data\SavedReportSearchResultsInterface" type="MageOS\AdvancedReport\Model\SavedReport\SavedReportSearchResults" />
+    <preference for="MageOS\AdvancedReport\Api\SavedReportRepositoryInterface" type="MageOS\AdvancedReport\Model\SavedReport\SavedReportRepository" />
+    <type name="MageOS\AdvancedReport\Model\Config\Reader">
+        <arguments>
+            <argument name="schemaLocator" xsi:type="object">MageOS\AdvancedReport\Model\Config\SchemaLocator</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Config\Data">
+        <arguments>
+            <argument name="reader" xsi:type="object">MageOS\AdvancedReport\Model\Config\Reader\Proxy</argument>
+            <argument name="cache" xsi:type="object">Magento\Framework\App\Cache\Type\Config</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Definition\DefinitionRegistry">
+        <arguments>
+            <argument name="configData" xsi:type="object">MageOS\AdvancedReport\Model\Config\Data</argument>
+            <argument name="datasetExtenders" xsi:type="array">
+                <item name="attribute_joins" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\AttributeJoinProvider</item>
+            </argument>
+            <argument name="presetExtenders" xsi:type="array">
+                <item name="first_report_attribute" xsi:type="object">MageOS\AdvancedReport\Model\Definition\Extender\FirstReportAttributePresetExtender</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Query\ResultCache">
+        <arguments>
+            <argument name="cache" xsi:type="object">MageOS\AdvancedReport\Model\Cache\Type</argument>
+        </arguments>
+    </type>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\SalesDocumentCountExpression">
+        <arguments>
+            <argument name="documentTable" xsi:type="string">sales_shipment</argument>
+            <argument name="itemTable" xsi:type="string">sales_shipment_item</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CreditMemoCountExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\SalesDocumentCountExpression">
+        <arguments>
+            <argument name="documentTable" xsi:type="string">sales_creditmemo</argument>
+            <argument name="itemTable" xsi:type="string">sales_creditmemo_item</argument>
+            <argument name="excludedStates" xsi:type="array">
+                <item name="canceled" xsi:type="const">Magento\Sales\Model\Order\Creditmemo::STATE_CANCELED</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver">
+        <arguments>
+            <argument name="providers" xsi:type="array">
+                <item name="first_order" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstOrderExpression</item>
+                <item name="shipment_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression</item>
+                <item name="credit_memo_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CreditMemoCountExpression</item>
+                <item name="first_shipment_wait" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstShipmentWaitExpression</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavourDetector">
+        <arguments>
+            <argument name="cache" xsi:type="object">MageOS\AdvancedReport\Model\Cache\Type</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneSupportDetector">
+        <arguments>
+            <argument name="cache" xsi:type="object">MageOS\AdvancedReport\Model\Cache\Type</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\DataSource\DataSourcePool">
+        <arguments>
+            <!-- Populated per source (e.g. mysql, opensearch) as
+                 sources/<code> => {source: xsi:type="object", sortOrder: xsi:type="number"}. -->
+            <argument name="sources" xsi:type="array">
+                <item name="mysql" xsi:type="array">
+                    <item name="source" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\MysqlDataSource</item>
+                    <item name="sortOrder" xsi:type="number">100</item>
+                </item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Query\DateBucketPostProcessor">
+        <arguments>
+            <!-- Dimensions with a fixed, non-date-range domain (task 044): every value the
+                 dimension can take, in the order the report should list them. -->
+            <argument name="fixedDomainDimensions" xsi:type="array">
+                <item name="order_hour" xsi:type="array">
+                    <item name="0" xsi:type="string">0</item>
+                    <item name="1" xsi:type="string">1</item>
+                    <item name="2" xsi:type="string">2</item>
+                    <item name="3" xsi:type="string">3</item>
+                    <item name="4" xsi:type="string">4</item>
+                    <item name="5" xsi:type="string">5</item>
+                    <item name="6" xsi:type="string">6</item>
+                    <item name="7" xsi:type="string">7</item>
+                    <item name="8" xsi:type="string">8</item>
+                    <item name="9" xsi:type="string">9</item>
+                    <item name="10" xsi:type="string">10</item>
+                    <item name="11" xsi:type="string">11</item>
+                    <item name="12" xsi:type="string">12</item>
+                    <item name="13" xsi:type="string">13</item>
+                    <item name="14" xsi:type="string">14</item>
+                    <item name="15" xsi:type="string">15</item>
+                    <item name="16" xsi:type="string">16</item>
+                    <item name="17" xsi:type="string">17</item>
+                    <item name="18" xsi:type="string">18</item>
+                    <item name="19" xsi:type="string">19</item>
+                    <item name="20" xsi:type="string">20</item>
+                    <item name="21" xsi:type="string">21</item>
+                    <item name="22" xsi:type="string">22</item>
+                    <item name="23" xsi:type="string">23</item>
+                </item>
+                <item name="order_weekday" xsi:type="array">
+                    <item name="0" xsi:type="string">0</item>
+                    <item name="1" xsi:type="string">1</item>
+                    <item name="2" xsi:type="string">2</item>
+                    <item name="3" xsi:type="string">3</item>
+                    <item name="4" xsi:type="string">4</item>
+                    <item name="5" xsi:type="string">5</item>
+                    <item name="6" xsi:type="string">6</item>
+                </item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Preset\PresetQueryPool">
+        <arguments>
+            <!-- Populated per preset query (tasks 031/032) as
+                 presetQueries/<Fully\Qualified\ClassName> => xsi:type="object". -->
+            <argument name="presetQueries" xsi:type="array">
+                <item name="MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery" xsi:type="object">MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery</item>
+                <item name="MageOS\AdvancedReport\Model\Preset\DeadStockQuery" xsi:type="object">MageOS\AdvancedReport\Model\Preset\DeadStockQuery</item>
+                <item name="MageOS\AdvancedReport\Model\Preset\NeverSoldQuery" xsi:type="object">MageOS\AdvancedReport\Model\Preset\NeverSoldQuery</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery">
+        <arguments>
+            <argument name="reportRunner" xsi:type="object">MageOS\AdvancedReport\Api\ReportRunnerInterface\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Label\LabelResolverPool">
+        <arguments>
+            <argument name="resolvers" xsi:type="array">
+                <item name="MageOS\AdvancedReport\Model\Label\StoreLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\StoreLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\PaymentMethodLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\PaymentMethodLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\ShippingMethodLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\ShippingMethodLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CountryLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CountryLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CategoryLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CategoryLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\AttributeOptionLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\AttributeOptionLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CustomerTypeLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CustomerTypeLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\HourOfDayLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\HourOfDayLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CustomerLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CustomerLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\MonthLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\MonthLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\GenderLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\GenderLabelResolver</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder">
+        <arguments>
+            <argument name="baseSelectProviders" xsi:type="array">
+                <item name="MageOS\AdvancedReport\Model\Stock\StockSelectProvider" xsi:type="object">MageOS\AdvancedReport\Model\Stock\StockSelectProvider</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="mageos_advancedreport_explain" xsi:type="object">MageOS\AdvancedReport\Console\Command\ExplainCommand</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Console\Command\ExplainCommand">
+        <arguments>
+            <argument name="definitionRegistry" xsi:type="object">MageOS\AdvancedReport\Model\Definition\DefinitionRegistry\Proxy</argument>
+            <argument name="queryPlanner" xsi:type="object">MageOS\AdvancedReport\Model\Query\QueryPlanner\Proxy</argument>
+            <argument name="selectBuilder" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder\Proxy</argument>
+            <argument name="resourceConnection" xsi:type="object">Magento\Framework\App\ResourceConnection\Proxy</argument>
+            <argument name="presetRequestBuilder" xsi:type="object">MageOS\AdvancedReport\Model\Query\PresetRequestBuilder\Proxy</argument>
+            <argument name="presetQueryPool" xsi:type="object">MageOS\AdvancedReport\Model\Preset\PresetQueryPool\Proxy</argument>
+            <argument name="config" xsi:type="object">MageOS\AdvancedReport\Model\Config\Proxy</argument>
+        </arguments>
+    </type>
+</config>

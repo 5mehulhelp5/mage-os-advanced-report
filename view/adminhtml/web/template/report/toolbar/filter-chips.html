@@ -1,0 +1,25 @@
+<div class="advancedreport-control advancedreport-filters advancedreport-dropdown" data-bind="advancedreportDropdown: {open: open}">
+    <button type="button" class="advancedreport-dropdown-toggle" aria-haspopup="true" aria-expanded="false" data-bind="text: buttonText"></button>
+    <div class="advancedreport-dropdown-panel" hidden>
+        <!-- ko if: fields.length -->
+        <form class="advancedreport-filter-form" data-bind="submit: add">
+            <select class="admin__control-select" data-bind="options: fields, optionsText: 'label', value: field, attr: {'aria-label': labels.field}"></select>
+            <select class="admin__control-select" data-bind="options: operators, optionsValue: 'code', optionsText: 'label', value: operator, attr: {'aria-label': labels.operator}"></select>
+            <!-- ko if: isBoolean -->
+            <select class="admin__control-select" data-bind="value: value, attr: {'aria-label': labels.value}">
+                <option value="1" data-bind="text: labels.yes"></option>
+                <option value="0" data-bind="text: labels.no"></option>
+            </select>
+            <!-- /ko -->
+            <!-- ko ifnot: isBoolean -->
+            <input class="admin__control-text" data-bind="attr: {type: inputType, step: inputType() === 'number' ? 'any' : null, placeholder: isList() ? labels.listHint : labels.value, 'aria-label': labels.value}, textInput: value"/>
+            <!-- /ko -->
+            <!-- ko if: isBetween -->
+            <input class="admin__control-text" data-bind="attr: {type: inputType, step: inputType() === 'number' ? 'any' : null, 'aria-label': labels.value}, textInput: valueTo"/>
+            <!-- /ko -->
+            <p class="message message-error" role="alert" data-bind="visible: invalid, text: labels.invalid"></p>
+            <button type="submit" class="action-primary" data-bind="text: labels.add"></button>
+        </form>
+        <!-- /ko -->
+    </div>
+</div>

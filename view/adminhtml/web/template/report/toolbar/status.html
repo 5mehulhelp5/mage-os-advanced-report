@@ -1,0 +1,11 @@
+<div class="advancedreport-status">
+    <!-- ko if: loading -->
+    <span class="advancedreport-spinner" role="status" data-bind="attr: {'aria-label': labels.loading, title: labels.loading}"></span>
+    <!-- /ko -->
+    <!-- ko if: source -->
+    <span class="advancedreport-badge" data-bind="text: source"></span>
+    <!-- /ko -->
+    <!-- ko if: cacheText -->
+    <span class="advancedreport-cache" data-bind="text: cacheText"></span>
+    <!-- /ko -->
+</div>

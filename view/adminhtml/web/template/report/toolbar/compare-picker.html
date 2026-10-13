@@ -1,0 +1,14 @@
+<div class="advancedreport-control advancedreport-compare advancedreport-dropdown" data-bind="advancedreportDropdown: {open: open}">
+    <button type="button" class="advancedreport-dropdown-toggle" aria-haspopup="true" aria-expanded="false"
+            data-bind="css: {'_muted': isNone}">
+        <span data-bind="text: buttonLabel"></span>
+    </button>
+    <div class="advancedreport-dropdown-panel" hidden>
+        <ul class="advancedreport-period-options" role="listbox" data-bind="attr: {'aria-label': label}">
+            <!-- ko foreach: options -->
+            <li role="option" tabindex="0" class="advancedreport-period-option"
+                data-bind="text: label, click: $parent.select, css: {'_selected': $parent.isSelected($data)}, attr: {'aria-selected': $parent.isSelected($data) ? 'true' : 'false', 'aria-checked': $parent.isSelected($data) ? 'true' : 'false'}, event: {keydown: function (d, e) { if (e.key === 'Enter' || e.key === ' ') { $parent.select(d); return false; } return true; }}"></li>
+            <!-- /ko -->
+        </ul>
+    </div>
+</div>

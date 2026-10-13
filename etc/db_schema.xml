@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="mageos_advancedreport_saved" resource="default" engine="innodb" comment="MageOS Advanced Report Saved Reports">
+        <column xsi:type="int" name="id" unsigned="false" nullable="false" identity="true" comment="Saved Report ID"/>
+        <column xsi:type="varchar" name="name" nullable="false" length="255" comment="Name"/>
+        <column xsi:type="text" name="description" nullable="true" comment="Description"/>
+        <column xsi:type="varchar" name="dataset_code" nullable="false" length="64" comment="Dataset Code"/>
+        <column xsi:type="mediumtext" name="definition" nullable="false" comment="Report Request JSON"/>
+        <column xsi:type="int" name="admin_user_id" unsigned="true" nullable="false" identity="false" comment="Owner Admin User ID"/>
+        <column xsi:type="smallint" name="is_shared" unsigned="false" nullable="false" identity="false" default="0" comment="Is Shared"/>
+        <column xsi:type="varchar" name="preset_code" nullable="true" length="64" comment="Preset Code"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true" nullable="false" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="id"/>
+        </constraint>
+        <constraint xsi:type="foreign" referenceId="MAGEOS_ADVANCEDREPORT_SAVED_ADMIN_USER_ID_ADMIN_USER_USER_ID" table="mageos_advancedreport_saved" column="admin_user_id" referenceTable="admin_user" referenceColumn="user_id" onDelete="CASCADE"/>
+        <index referenceId="MAGEOS_ADVANCEDREPORT_SAVED_ADMIN_USER_ID" indexType="btree">
+            <column name="admin_user_id"/>
+        </index>
+        <index referenceId="MAGEOS_ADVANCEDREPORT_SAVED_IS_SHARED" indexType="btree">
+            <column name="is_shared"/>
+        </index>
+    </table>
+    <table name="sales_order" resource="sales">
+        <index referenceId="SALES_ORDER_CUSTOMER_ID_CREATED_AT" indexType="btree">
+            <column name="customer_id"/>
+            <column name="created_at"/>
+        </index>
+        <index referenceId="SALES_ORDER_CUSTOMER_EMAIL_CREATED_AT" indexType="btree">
+            <column name="customer_email"/>
+            <column name="created_at"/>
+        </index>
+    </table>
+    <table name="sales_order_item" resource="sales">
+        <index referenceId="SALES_ORDER_ITEM_PRODUCT_ID" indexType="btree">
+            <column name="product_id"/>
+        </index>
+    </table>
+</schema>

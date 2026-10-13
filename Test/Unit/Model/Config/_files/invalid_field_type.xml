@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders" label="Orders" acl="MageOS_AdvancedReport::sales" area="sales">
+        <field code="grand_total" label="Grand Total" type="bogus">
+            <mysql expression="main.base_grand_total"/>
+        </field>
+    </dataset>
+</config>

@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Backend:etc/menu.xsd">
+    <menu>
+        <add id="MageOS_AdvancedReport::report" title="Advanced Report" translate="title" module="MageOS_AdvancedReport" sortOrder="90" parent="Magento_Reports::report" action="advancedreport/report/index" resource="MageOS_AdvancedReport::reports" dependsOnConfig="mageos_advancedreport/general/enabled"/>
+    </menu>
+</config>

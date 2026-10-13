@@ -1,0 +1,68 @@
+{
+    "name": "mageos/module-advanced-report",
+    "description": "Advanced sales and catalog reporting for Magento Open Source / Mage-OS.",
+    "type": "magento2-module",
+    "license": [
+        "OSL-3.0",
+        "AFL-3.0"
+    ],
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "magento/composer-dependency-version-audit-plugin": true,
+            "magento/magento-composer-installer": false
+        }
+    },
+    "version": "1.0.0",
+    "require": {
+        "php": "~8.3.0||~8.4.0||~8.5.0",
+        "magento/framework": "*",
+        "magento/module-store": "*",
+        "magento/module-sales": "*",
+        "magento/module-catalog": "*",
+        "magento/module-customer": "*",
+        "magento/module-backend": "*",
+        "magento/module-reports": "*",
+        "magento/module-user": "*",
+        "magento/module-eav": "*",
+        "magento/module-directory": "*",
+        "magento/module-payment": "*",
+        "magento/module-shipping": "*",
+        "magento/module-ui": "*"
+    },
+    "suggest": {
+        "magento/module-inventory-api": "Used to read multi-source stock levels for the catalog_stock dataset when MSI is enabled.",
+        "magento/module-open-search": "Used as an alternative reporting data source when OpenSearch is enabled."
+    },
+    "require-dev": {
+        "bitexpert/phpstan-magento": "^0.44",
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "phpstan/phpstan": "^2.2",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpunit/phpunit": "^13.3"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "MageOS\\AdvancedReport\\": ""
+        }
+    },
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://mirror.mage-os.org/"
+        }
+    ],
+    "scripts": {
+        "test:unit": "phpunit -c phpunit.xml.dist --testsuite unit",
+        "test:phpstan": "phpstan analyse --memory-limit=1G",
+        "test:cs-fixer": "php-cs-fixer fix --dry-run --diff --allow-risky=yes",
+        "test": [
+            "@test:unit",
+            "@test:phpstan",
+            "@test:cs-fixer"
+        ]
+    }
+}

@@ -1,0 +1,48 @@
+<div class="advancedreport-table-card advancedreport-card">
+    <!-- ko if: warnings().length -->
+    <div class="advancedreport-table-warnings" data-bind="foreach: warnings">
+        <div class="message message-warning"><span data-bind="text: $data"></span></div>
+    </div>
+    <!-- /ko -->
+    <!-- ko if: columns().length -->
+    <div class="advancedreport-table-scroll">
+    <table class="advancedreport-table">
+        <thead>
+            <tr data-bind="foreach: columns">
+                <th scope="col" data-bind="attr: {'aria-sort': $parent.ariaSort($data), title: description}, css: {'_sortable': true, '_ascend': $parent.sortDirection($data) === 'asc', '_descend': $parent.sortDirection($data) === 'desc', 'advancedreport-numeric': type === 'metric'}, click: $parent.sortBy">
+                    <span data-bind="text: label"></span>
+                    <span class="advancedreport-sort-arrow" aria-hidden="true"></span>
+                </th>
+            </tr>
+        </thead>
+        <tbody data-bind="foreach: rows">
+            <tr data-bind="foreach: cells">
+                <td data-bind="css: {'advancedreport-numeric': numeric}">
+                    <span data-bind="text: text"></span>
+                    <!-- ko if: delta -->
+                    <span class="advancedreport-delta" data-bind="text: delta.text, css: 'advancedreport-delta-' + delta.cssClass, attr: {title: delta.title}"></span>
+                    <!-- /ko -->
+                </td>
+            </tr>
+        </tbody>
+        <!-- ko if: totalsCells().length -->
+        <tfoot>
+            <tr class="advancedreport-totals" data-bind="foreach: totalsCells">
+                <td data-bind="css: {'advancedreport-numeric': numeric}">
+                    <span data-bind="text: text"></span>
+                    <!-- ko if: delta -->
+                    <span class="advancedreport-delta" data-bind="text: delta.text, css: 'advancedreport-delta-' + delta.cssClass, attr: {title: delta.title}"></span>
+                    <!-- /ko -->
+                </td>
+            </tr>
+        </tfoot>
+        <!-- /ko -->
+    </table>
+    </div>
+    <div class="advancedreport-pager" data-bind="visible: hasPages">
+        <span class="advancedreport-pager-info" data-bind="text: pageInfo"></span>
+        <button type="button" class="advancedreport-pager-btn _prev" data-bind="click: prevPage, enable: hasPrev, attr: {'aria-label': labels.prev, title: labels.prev}"></button>
+        <button type="button" class="advancedreport-pager-btn _next" data-bind="click: nextPage, enable: hasNext, attr: {'aria-label': labels.next, title: labels.next}"></button>
+    </div>
+    <!-- /ko -->
+</div>

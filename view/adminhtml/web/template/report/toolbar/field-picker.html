@@ -1,0 +1,50 @@
+<div class="advancedreport-control advancedreport-fields">
+    <div class="advancedreport-dropdown advancedreport-metrics" data-bind="advancedreportDropdown: {open: metricsOpen}">
+        <button type="button" class="advancedreport-dropdown-toggle" aria-haspopup="true" data-bind="text: metricsButtonLabel"></button>
+        <div class="advancedreport-dropdown-panel" hidden>
+            <!-- ko if: showSearch -->
+            <input type="search" class="admin__control-text advancedreport-search" data-bind="textInput: metricSearch, attr: {placeholder: labels.searchMetrics, 'aria-label': labels.searchMetrics}"/>
+            <!-- /ko -->
+            <ul class="advancedreport-options">
+                <!-- ko foreach: visibleMetrics -->
+                <li>
+                    <label class="advancedreport-option" data-bind="attr: {title: description}">
+                        <input type="checkbox" data-bind="checked: selected"/>
+                        <span data-bind="text: label"></span>
+                        <!-- ko if: description -->
+                        <small class="advancedreport-option-description" data-bind="text: description"></small>
+                        <!-- /ko -->
+                    </label>
+                </li>
+                <!-- /ko -->
+            </ul>
+            <div class="advancedreport-dropdown-footer" data-bind="text: metricsSummary"></div>
+        </div>
+    </div>
+    <div class="advancedreport-dropdown advancedreport-dimensions" data-bind="advancedreportDropdown: {open: dimensionsOpen}">
+        <button type="button" class="advancedreport-dropdown-toggle" aria-haspopup="true" data-bind="text: dimensionsButtonLabel"></button>
+        <div class="advancedreport-dropdown-panel" hidden>
+            <ul class="advancedreport-options">
+                <!-- ko foreach: dimensions -->
+                <li class="advancedreport-option">
+                    <label>
+                        <input type="checkbox" data-bind="checked: selected"/>
+                        <span data-bind="text: label"></span>
+                    </label>
+                    <!-- ko if: selected() && granularities.length -->
+                    <select class="admin__control-select" data-bind="options: granularities, value: granularity, attr: {'aria-label': $parent.labels.granularity}"></select>
+                    <!-- /ko -->
+                </li>
+                <!-- /ko -->
+            </ul>
+            <!-- ko if: hasAlternate -->
+            <div class="advancedreport-dropdown-footer advancedreport-alternate">
+                <label class="advancedreport-option">
+                    <input type="checkbox" data-bind="checked: alternateOn"/>
+                    <span data-bind="text: labels.alternate"></span>
+                </label>
+            </div>
+            <!-- /ko -->
+        </div>
+    </div>
+</div>

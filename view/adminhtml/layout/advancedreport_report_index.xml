@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceBlock name="menu">
+            <action method="setActive">
+                <argument name="itemId" xsi:type="string">MageOS_AdvancedReport::report</argument>
+            </action>
+        </referenceBlock>
+        <referenceContainer name="content">
+            <block class="Magento\Framework\View\Element\Template" name="advancedreport.report.list" template="MageOS_AdvancedReport::report/index.phtml">
+                <arguments>
+                    <argument name="view_model" xsi:type="object">MageOS\AdvancedReport\ViewModel\ReportList</argument>
+                </arguments>
+            </block>
+        </referenceContainer>
+    </body>
+</page>

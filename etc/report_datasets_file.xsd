@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Per-file schema for report_datasets.xml: every attribute is optional except
+    the ones used as merge ids (Reader::$_idAttributes), so an extension file may
+    add e.g. a single <field> to an existing dataset without repeating its
+    label/acl/area/source. The merged schema (report_datasets.xsd) and the
+    definition validator enforce the attributes that become mandatory once merged.
+-->
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+    <xs:simpleType name="fieldTypeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="money"/>
+            <xs:enumeration value="integer"/>
+            <xs:enumeration value="decimal"/>
+            <xs:enumeration value="boolean"/>
+            <xs:enumeration value="string"/>
+            <xs:enumeration value="id"/>
+            <xs:enumeration value="date"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="aggregateFunctionType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="sum"/>
+            <xs:enumeration value="count"/>
+            <xs:enumeration value="count_distinct"/>
+            <xs:enumeration value="min"/>
+            <xs:enumeration value="max"/>
+            <xs:enumeration value="avg"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="metricFormatType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="money"/>
+            <xs:enumeration value="number"/>
+            <xs:enumeration value="percent"/>
+            <xs:enumeration value="integer"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="filterOperatorType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="eq"/>
+            <xs:enumeration value="neq"/>
+            <xs:enumeration value="in"/>
+            <xs:enumeration value="nin"/>
+            <xs:enumeration value="gte"/>
+            <xs:enumeration value="lte"/>
+            <xs:enumeration value="between"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="granularityType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="hour"/>
+            <xs:enumeration value="day"/>
+            <xs:enumeration value="week"/>
+            <xs:enumeration value="month"/>
+            <xs:enumeration value="year"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="areaType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="sales"/>
+            <xs:enumeration value="catalog"/>
+            <xs:enumeration value="customers"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="joinTypeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="inner"/>
+            <xs:enumeration value="left"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:element name="config">
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element name="dataset" type="datasetType" maxOccurs="unbounded"/>
+                <xs:element name="preset" type="presetType" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:complexType name="datasetType">
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="source" type="sourceType" maxOccurs="unbounded"/>
+            <xs:element name="implicitFilter" type="implicitFilterType" maxOccurs="unbounded"/>
+            <xs:element name="join" type="joinType" maxOccurs="unbounded"/>
+            <xs:element name="field" type="fieldType" maxOccurs="unbounded"/>
+            <xs:element name="metric" type="metricType" maxOccurs="unbounded"/>
+            <xs:element name="dimension" type="dimensionType" maxOccurs="unbounded"/>
+        </xs:choice>
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="label" type="xs:string" use="optional"/>
+        <xs:attribute name="acl" type="xs:string" use="optional"/>
+        <xs:attribute name="area" type="areaType" use="optional"/>
+        <xs:attribute name="dateless" type="xs:boolean" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="sourceType">
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="optional"/>
+        <xs:attribute name="alias" type="xs:string" use="optional"/>
+        <xs:attribute name="provider" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="implicitFilterType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="joinType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="optional"/>
+        <xs:attribute name="alias" type="xs:string" use="optional"/>
+        <xs:attribute name="type" type="joinTypeType" use="optional"/>
+        <xs:attribute name="condition" type="xs:string" use="optional"/>
+        <xs:attribute name="requires" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="sourceMappingType">
+        <xs:attribute name="expression" type="xs:string" use="optional"/>
+        <xs:attribute name="expressionProvider" type="xs:string" use="optional"/>
+        <xs:attribute name="joins" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="fieldType">
+        <xs:sequence>
+            <xs:element name="mysql" type="sourceMappingType" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="label" type="xs:string" use="optional"/>
+        <xs:attribute name="type" type="fieldTypeType" use="optional"/>
+        <xs:attribute name="description" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="metricType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="label" type="xs:string" use="optional"/>
+        <xs:attribute name="description" type="xs:string" use="optional"/>
+        <xs:attribute name="format" type="metricFormatType" use="optional"/>
+        <xs:attribute name="aggregate" type="aggregateFunctionType" use="optional"/>
+        <xs:attribute name="field" type="xs:string" use="optional"/>
+        <xs:attribute name="condition" type="xs:string" use="optional"/>
+        <xs:attribute name="formula" type="xs:string" use="optional"/>
+        <xs:attribute name="hidden" type="xs:boolean" use="optional"/>
+        <xs:attribute name="virtual" type="xs:boolean" use="optional"/>
+        <xs:attribute name="lowerIsBetter" type="xs:boolean" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="dimensionType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="label" type="xs:string" use="optional"/>
+        <xs:attribute name="field" type="xs:string" use="optional"/>
+        <xs:attribute name="labelResolver" type="xs:string" use="optional"/>
+        <xs:attribute name="granularities" type="xs:string" use="optional"/>
+        <xs:attribute name="nonAdditive" type="xs:boolean" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="presetType">
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="metric" type="presetMetricType" maxOccurs="unbounded"/>
+            <xs:element name="dimension" type="presetDimensionType" maxOccurs="unbounded"/>
+            <xs:element name="filter" type="presetFilterType" maxOccurs="unbounded"/>
+            <xs:element name="sort" type="presetSortType" maxOccurs="unbounded"/>
+        </xs:choice>
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="area" type="areaType" use="optional"/>
+        <xs:attribute name="dataset" type="xs:string" use="optional"/>
+        <xs:attribute name="label" type="xs:string" use="optional"/>
+        <xs:attribute name="sources" type="xs:string" use="optional"/>
+        <xs:attribute name="presetQuery" type="xs:string" use="optional"/>
+        <xs:attribute name="compareTo" type="xs:string" use="optional"/>
+        <xs:attribute name="dateRange" type="xs:string" use="optional"/>
+        <xs:attribute name="alternateDimension" type="xs:string" use="optional"/>
+        <xs:attribute name="description" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="presetMetricType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="presetDimensionType">
+        <xs:attribute name="code" type="xs:string" use="required"/>
+        <xs:attribute name="granularity" type="granularityType" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="presetFilterType">
+        <xs:attribute name="field" type="xs:string" use="required"/>
+        <xs:attribute name="operator" type="filterOperatorType" use="optional"/>
+        <xs:attribute name="value" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="presetSortType">
+        <xs:attribute name="by" type="xs:string" use="required"/>
+        <xs:attribute name="direction" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+</xs:schema>

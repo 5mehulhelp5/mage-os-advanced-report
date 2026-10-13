@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <tab id="mageos_advancedreport" translate="label" sortOrder="200">
+            <label>Advanced Report</label>
+        </tab>
+        <section id="mageos_advancedreport" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+            <class>separator-top</class>
+            <label>Configuration</label>
+            <tab>mageos_advancedreport</tab>
+            <resource>MageOS_AdvancedReport::config</resource>
+            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>General</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Enabled</label>
+                    <comment>Disables the Advanced Report admin menu, controllers and cron jobs when set to No.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
+            <group id="sales" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Sales</label>
+                <field id="counted_statuses" translate="label comment" type="multiselect" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Order Statuses Counted as Sales</label>
+                    <comment>Order statuses included in sales metrics. Leave empty to count every status except "Canceled".</comment>
+                    <source_model>MageOS\AdvancedReport\Model\Config\Source\OrderStatuses</source_model>
+                    <can_be_empty>1</can_be_empty>
+                </field>
+            </group>
+            <group id="catalog" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Catalog</label>
+                <field id="dead_stock_days" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Dead Stock Threshold (days)</label>
+                    <comment>Number of days without sales after which in-stock products are flagged as dead stock.</comment>
+                    <validate>required-entry validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="report_attributes" translate="label comment" type="multiselect" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Additional Product Attributes</label>
+                    <comment>Extra product attributes available as dimensions in catalog reports.</comment>
+                    <source_model>MageOS\AdvancedReport\Model\Config\Source\ReportAttributes</source_model>
+                    <can_be_empty>1</can_be_empty>
+                </field>
+            </group>
+            <group id="performance" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Performance</label>
+                <field id="connection_name" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Database Connection Name</label>
+                    <comment>Name of the Magento database connection (as declared in app/etc/env.php) used to run report queries.</comment>
+                </field>
+                <field id="max_rows" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Maximum Result Rows</label>
+                    <comment>Hard cap on the number of rows a single report query may return.</comment>
+                    <validate>required-entry validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="query_timeout_ms" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Query Timeout (ms)</label>
+                    <comment>Maximum execution time allowed for a report query before it is aborted.</comment>
+                    <validate>required-entry validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="cache_ttl_open_period" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Cache TTL for Open Periods (seconds)</label>
+                    <comment>Cache lifetime for report data covering periods that can still change (e.g. today, current month).</comment>
+                    <validate>required-entry validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="cache_ttl_closed_period" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Cache TTL for Closed Periods (seconds)</label>
+                    <comment>Cache lifetime for report data covering periods considered final (e.g. past months). Refunds may still change closed periods; the cache is cleared when this configuration is saved.</comment>
+                    <validate>required-entry validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

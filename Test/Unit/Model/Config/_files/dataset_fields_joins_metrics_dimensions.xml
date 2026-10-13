@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders" label="Orders" acl="MageOS_AdvancedReport::sales" area="sales">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <join code="payment" table="sales_order_payment" alias="payment" type="left"
+              condition="payment.parent_id = main.entity_id"/>
+        <field code="grand_total" label="Grand Total" type="money">
+            <mysql expression="main.base_grand_total"/>
+        </field>
+        <metric code="orders" label="Orders" description="Number of orders" format="integer"
+                aggregate="count" field="grand_total"/>
+        <dimension code="payment_method" label="Payment method" field="payment_method"/>
+    </dataset>
+</config>

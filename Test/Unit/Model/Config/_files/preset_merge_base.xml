@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<config>
+    <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview"
+            description="Revenue and orders over time">
+        <metric code="orders"/>
+        <filter field="store_id" operator="in" value="1,2"/>
+        <sort by="orders" direction="desc"/>
+    </preset>
+</config>

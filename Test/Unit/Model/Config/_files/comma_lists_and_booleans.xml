@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="catalog_stock" label="Stock" acl="MageOS_AdvancedReport::catalog" area="catalog" dateless="true">
+        <join code="stock_item" table="cataloginventory_stock_item" alias="stock_item" condition="1=1" requires="product,website"/>
+        <field code="qty" label="Qty" type="decimal">
+            <mysql expression="stock_item.qty" joins="stock_item,website"/>
+        </field>
+        <metric code="low_stock" label="Low stock" format="integer" aggregate="count" field="qty"
+                hidden="true" virtual="true" lowerIsBetter="true"/>
+        <dimension code="stock_date" label="Date" field="created_at" granularities="day,week,month" nonAdditive="true"/>
+    </dataset>
+    <preset code="stock_overview" area="catalog" dataset="catalog_stock" label="Stock overview" sources="mysql,opensearch">
+        <filter field="store_id" operator="in" value="1,2,3"/>
+    </preset>
+</config>

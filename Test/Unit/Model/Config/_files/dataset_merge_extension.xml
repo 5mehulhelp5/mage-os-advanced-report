@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders">
+        <field code="discount_total" label="Discount Total" type="money">
+            <mysql expression="main.base_discount_amount"/>
+        </field>
+        <metric code="discount_rate" label="Discount rate" format="percent" formula="discount_total / orders"/>
+    </dataset>
+</config>

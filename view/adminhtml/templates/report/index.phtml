@@ -1,0 +1,56 @@
+<?php
+/**
+ * @var \Magento\Framework\View\Element\Template $block
+ * @var \Magento\Framework\Escaper $escaper
+ * @var \MageOS\AdvancedReport\ViewModel\ReportList $viewModel
+ */
+$viewModel = $block->getData('view_model');
+$areas = $viewModel->getAreas();
+?>
+<div class="advancedreport-index">
+<?php if ($areas === []): ?>
+    <p class="message message-notice"><?= $escaper->escapeHtml(__('No reports are available.')) ?></p>
+<?php endif; ?>
+<?php foreach ($areas as $area): ?>
+    <?php if ($area['presets'] !== []): ?>
+        <section class="advancedreport-card">
+            <header class="advancedreport-card__header">
+                <h2 class="advancedreport-card__title"><?= $escaper->escapeHtml($area['label']) ?></h2>
+                <?php if ($area['description'] !== ''): ?>
+                    <p class="advancedreport-card__description"><?= $escaper->escapeHtml($area['description']) ?></p>
+                <?php endif; ?>
+            </header>
+            <ul class="advancedreport-card__grid">
+                <?php foreach ($area['presets'] as $item): ?>
+                    <li>
+                        <a class="advancedreport-tile" href="<?= $escaper->escapeUrl($item['url']) ?>">
+                            <span class="advancedreport-tile__title"><?= $escaper->escapeHtml(__($item['label'])) ?></span>
+                            <?php if ($item['description'] !== ''): ?>
+                                <span class="advancedreport-tile__description"><?= $escaper->escapeHtml(__($item['description'])) ?></span>
+                            <?php endif; ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+    <?php endif; ?>
+    <?php if ($area['saved'] !== []): ?>
+        <section class="advancedreport-card advancedreport-card--saved">
+            <header class="advancedreport-card__header">
+                <h2 class="advancedreport-card__title"><?= $escaper->escapeHtml(__('Saved reports: %1', $area['label'])) ?></h2>
+                <p class="advancedreport-card__description"><?= $escaper->escapeHtml(__('Reports you and your team saved for quick access.')) ?></p>
+            </header>
+            <ul class="advancedreport-card__list">
+                <?php foreach ($area['saved'] as $item): ?>
+                    <li>
+                        <a href="<?= $escaper->escapeUrl($item['url']) ?>"><?= $escaper->escapeHtml($item['label']) ?></a>
+                        <?php if ($item['shared']): ?>
+                            <span class="advancedreport-badge"><?= $escaper->escapeHtml(__('Shared')) ?></span>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </section>
+    <?php endif; ?>
+<?php endforeach; ?>
+</div>

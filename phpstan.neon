@@ -11,6 +11,8 @@ parameters:
         - Observer
         - ViewModel
         - Test
+    excludePaths:
+        - Test/Integration
     treatPhpDocTypesAsCertain: false
     parallel:
         maximumNumberOfProcesses: 1

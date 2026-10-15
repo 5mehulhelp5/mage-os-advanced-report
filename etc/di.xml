@@ -171,6 +171,7 @@
         <arguments>
             <argument name="commands" xsi:type="array">
                 <item name="mageos_advancedreport_explain" xsi:type="object">MageOS\AdvancedReport\Console\Command\ExplainCommand</item>
+                <item name="mageos_advancedreport_inventory" xsi:type="object">MageOS\AdvancedReport\Console\Command\InventoryCommand</item>
             </argument>
         </arguments>
     </type>
@@ -183,6 +184,12 @@
             <argument name="presetRequestBuilder" xsi:type="object">MageOS\AdvancedReport\Model\Query\PresetRequestBuilder\Proxy</argument>
             <argument name="presetQueryPool" xsi:type="object">MageOS\AdvancedReport\Model\Preset\PresetQueryPool\Proxy</argument>
             <argument name="config" xsi:type="object">MageOS\AdvancedReport\Model\Config\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Console\Command\InventoryCommand">
+        <arguments>
+            <argument name="inventoryBuilder" xsi:type="object">MageOS\AdvancedReport\Model\Audit\MetricInventoryBuilder\Proxy</argument>
+            <argument name="definitionRegistry" xsi:type="object">MageOS\AdvancedReport\Model\Definition\DefinitionRegistry\Proxy</argument>
         </arguments>
     </type>
 </config>

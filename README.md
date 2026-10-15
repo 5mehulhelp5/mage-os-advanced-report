@@ -59,7 +59,7 @@ and in comparisons (they are never averages of averages).
 
 ## Requirements
 
-- Magento Open Source 2.4.8+ or Mage-OS, PHP 8.3+.
+- Magento Open Source 2.4.7+ or Mage-OS, PHP 8.3+.
 - `Magento_Reports` (hard dependency: the admin menu entry is a child of the Reports menu).
 - Optional: MySQL/MariaDB timezone tables (`mysql_tzinfo_to_sql`) for exact hourly reports in non-UTC store
   timezones; without them the module falls back to an UTC-hour aggregation and warns in the diagnostics panel.
@@ -310,7 +310,7 @@ Attribute reference:
 | Element | Attributes |
 |---|---|
 | `dataset` | `code`; for a new dataset also `label`, `acl` (ACL resource checked by the data endpoint), `area` (`sales`, `catalog`, `customers`), optional `dateless="true"` for snapshot datasets without `created_at`. Children: `<source name="mysql" table="..." alias="main"/>` (or `provider="..."`), `<implicitFilter code="counted_status"/>`, joins, fields, metrics, dimensions. |
-| `join` | `code`, `table`, `alias`, `condition`, optional `type` (`left` default, `inner`) and `requires` (comma-separated join codes this join depends on). |
+| `join` | `code`, `table`, `alias`, `condition`, optional `type` (`left` default, `inner`) and `requires` (comma-separated join codes this join depends on) and `cardinality` (`one` default, `many` for one-to-many joins that can multiply rows and inflate aggregates). |
 | `field` | `code`, `label`, `type` (`money`, `integer`, `decimal`, `boolean`, `string`, `id`, `date`), optional `description`. Child `<mysql expression="..." joins="a,b"/>` or `<mysql expressionProvider="name"/>`. |
 | `metric` | `code`, `label`, `format` (`money`, `number`, `percent`, `integer`), `description`, `lowerIsBetter` (colours the comparison delta), `hidden` (formula helper not shown in the picker). Either `aggregate` (`sum`, `count`, `count_distinct`, `min`, `max`, `avg`) + `field` + optional `condition` (a boolean field), or `formula`, or `virtual="true"` (value supplied by a preset query). |
 | `dimension` | `code`, `label`, `field`, optional `labelResolver` (class name), `granularities` (for date fields: `hour,day,week,month,year`), `nonAdditive="true"` (rows may not sum up to the total; a warning is shown). |
@@ -409,6 +409,18 @@ bin/magento advanced-report:explain --preset=sales_overview --from=2026-01-01 --
 
 `--from` and `--to` (Y-m-d, `from <= to`) are required, `--preset` is optional (default: all presets).
 
+## `advanced-report:inventory`
+
+Prints the metric inventory: for every metric of every dataset its kind, aggregate, expression, joins, fan-out (row multiplication) risk and context dependencies. Output is deterministic, so regenerating it for unchanged definitions gives an empty diff.
+
+```bash
+bin/magento advanced-report:inventory                                  # Markdown, all datasets
+bin/magento advanced-report:inventory --format=json --dataset=sales_orders
+bin/magento advanced-report:inventory --output=docs/metric-inventory.md
+```
+
+`--format` (`md` default, or `json`), `--dataset` (default: all) and `--output` (file path, relative to the current directory, instead of stdout) are optional. Regenerate `docs/metric-inventory.md` whenever definitions change with `make command advanced-report:inventory opts="--output=app/code/MageOS/AdvancedReport/docs/metric-inventory.md"` (do not redirect stdout: make echoes the recipe and the container TTY adds CRLF).
+
 ## Performance notes
 
 - **Live queries, no aggregation tables**: there is no indexer or cron to maintain and data is always current, but
@@ -438,32 +450,13 @@ bin/magento advanced-report:explain --preset=sales_overview --from=2026-01-01 --
 
 ## Known limits
 
-- Bundle products count as a single line in `sales_items` (the parent row; children are not reported separately).
-- Returns are attributed to the date of the original order, not to the credit memo date; refunds can therefore
-  change past periods (closed periods are cached for 24 hours by default).
-- Units shipped and units to ship are attributed to the date of the original order, so `units_to_ship` is the backlog of orders placed in the selected period, not the store's whole open backlog. Past periods can change as shipments are created (closed periods are cached for 24 hours by default). Bundle products shipped separately count 0 shipped and 0 to ship on the bundle line.
-- The `category_id` dimension is non-additive: a product in several categories appears in each, so totals may not
-  equal the sum of the rows shown (a warning is displayed).
-- A multiselect product attribute used as dimension is bucketed by its raw stored value (for example `12,15`),
-  not split per option.
-- New vs returning customer analysis is limited to 12 months on MySQL, and a guest checkout later followed by a
-  registered account for the same person is counted as new twice.
-- A gender value without a matching option (for example a legacy or removed option id) is shown raw.
-- Stock value uses the global (default scope) product price and cost, not website or store overrides.
-- `Magento_Reports` is a hard dependency because it provides the parent admin menu entry.
-- Magento Open Source / Mage-OS only: EAV joins use `entity_id`. Adobe Commerce `row_id` (staging) is not supported.
-- When the selected stores use different base currencies, amounts are not converted and a warning is shown.
-- Customer analysis: a customer who changes email is split into two customers.
-- Customer accounts with `store_id` 0 (admin-created) or NULL (deleted store) are excluded when specific stores are
-  selected, and also from "All stores" when the stores span several timezones: the date scope then filters on the
-  stores of each timezone (store 0 is not among them) and the local date conversion has no fallback for them. In a
-  single-timezone install they are counted under "All stores".
-- Large customer lists are capped by `max_rows` (results are truncated with a warning).
-- Without database timezone tables, `avg_wait_days` and `unique_customers` (non-additive AVG / COUNT DISTINCT) come
-  back empty with a warning when grouped by order date in a non-UTC timezone (the `customer_value` preset, grouped
-  by customer, is unaffected).
-- `days_since_last_order` is relative to today, so cached closed periods (24h TTL) may be up to one day stale.
-- Without database timezone tables, hourly reports on non whole hour timezone offsets may be inaccurate.
+The full list with severity and owner is in the [risk register](docs/risk-register.md).
+
+## Documentation
+
+- [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
+- [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.
+- [Compatibility](docs/compatibility.md): supported Magento, PHP and database versions and the CI job enforcing each.
 
 ## Roadmap
 

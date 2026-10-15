@@ -378,14 +378,16 @@
             Configurable parents only: the order_id term uses the native
             SALES_ORDER_ITEM_ORDER_ID index (there is no index on parent_item_id), and the
             product_type term prevents bundle parents (N children) from multiplying every
-            main.* sum by N.
+            main.* sum by N. With that term a configurable parent has exactly one simple child,
+            hence cardinality "one".
         -->
         <join code="child" table="sales_order_item" alias="child" type="left"
-              condition="child.order_id = main.order_id AND child.parent_item_id = main.item_id AND main.product_type = 'configurable'"/>
+              condition="child.order_id = main.order_id AND child.parent_item_id = main.item_id AND main.product_type = 'configurable'"
+              cardinality="one"/>
         <join code="parent_product" table="catalog_product_entity" alias="parent_product" type="left"
               condition="parent_product.entity_id = main.product_id"/>
         <join code="category" table="catalog_category_product" alias="category" type="left"
-              condition="category.product_id = main.product_id"/>
+              condition="category.product_id = main.product_id" cardinality="many"/>
 
         <!-- Reserved fields, mapped to the order row so the indexed sales_order columns drive the query. -->
         <field code="created_at" label="Created at" type="date">

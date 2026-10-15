@@ -5,11 +5,26 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Etc;
 
 use MageOS\AdvancedReport\Model\Definition\Dataset;
+use MageOS\AdvancedReport\Model\Definition\JoinCardinality;
 use PHPUnit\Framework\TestCase;
 
 final class SalesItemsDatasetTest extends TestCase
 {
     use ReportDatasetsFixtureTrait;
+
+    public function testItDeclaresSalesItemsCategoryJoinAsMany(): void
+    {
+        $dataset = $this->loadSalesItemsDataset();
+
+        self::assertSame(JoinCardinality::MANY, $dataset->joins['category']->cardinality);
+    }
+
+    public function testItDeclaresSalesItemsChildJoinAsOne(): void
+    {
+        $dataset = $this->loadSalesItemsDataset();
+
+        self::assertSame(JoinCardinality::ONE, $dataset->joins['child']->cardinality);
+    }
 
     public function testItDefinesSalesItemsMetricsIncludingCostGrossMarginMarginPctReturnRateAndCostCoverage(): void
     {

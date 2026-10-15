@@ -74,6 +74,13 @@
         </xs:restriction>
     </xs:simpleType>
 
+    <xs:simpleType name="joinCardinalityType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="one"/>
+            <xs:enumeration value="many"/>
+        </xs:restriction>
+    </xs:simpleType>
+
     <xs:element name="config">
         <xs:complexType>
             <xs:choice minOccurs="0" maxOccurs="unbounded">
@@ -117,6 +124,7 @@
         <xs:attribute name="type" type="joinTypeType" use="optional"/>
         <xs:attribute name="condition" type="xs:string" use="required"/>
         <xs:attribute name="requires" type="xs:string" use="optional"/>
+        <xs:attribute name="cardinality" type="joinCardinalityType" use="optional"/>
     </xs:complexType>
 
     <xs:complexType name="sourceMappingType">

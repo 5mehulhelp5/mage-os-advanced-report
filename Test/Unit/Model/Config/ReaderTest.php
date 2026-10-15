@@ -91,6 +91,24 @@ final class ReaderTest extends TestCase
         self::assertSame('Revenue and orders over time', $result['presets']['sales_overview']['description']);
     }
 
+    public function testItValidatesJoinCardinalityAttributeAgainstTheMergedAndPerFileXsd(): void
+    {
+        $this->fileResolver->method('get')->willReturn([$this->fixture('join_cardinality_many.xml')]);
+
+        $result = $this->reader()->read();
+
+        self::assertSame('many', $result['datasets']['sales_items']['joins']['category']['cardinality']);
+    }
+
+    public function testItRejectsAnUnknownJoinCardinalityInTheXsd(): void
+    {
+        $this->fileResolver->method('get')->willReturn([$this->fixture('join_cardinality_invalid.xml')]);
+
+        $this->expectException(LocalizedException::class);
+
+        $this->reader()->read();
+    }
+
     public function testItRejectsAFileThatViolatesTheXsd(): void
     {
         $this->fileResolver->method('get')->willReturn([

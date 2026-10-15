@@ -120,6 +120,7 @@ class Converter implements ConverterInterface
                 'type' => $this->attr($node, 'type', 'left'),
                 'condition' => $this->attr($node, 'condition'),
                 'requires' => $this->list($this->attr($node, 'requires', '')),
+                'cardinality' => $this->attr($node, 'cardinality', 'one'),
             ];
         }
 

@@ -15,6 +15,7 @@ final readonly class Join
      * @param string $alias
      * @param string $condition
      * @param string[] $requires Join codes that must be applied before this one.
+     * @param JoinCardinality $cardinality Whether the join can match many rows per base row.
      */
     public function __construct(
         public string $code,
@@ -22,6 +23,7 @@ final readonly class Join
         public string $alias,
         public string $condition,
         public array $requires = [],
+        public JoinCardinality $cardinality = JoinCardinality::ONE,
     ) {
     }
 }

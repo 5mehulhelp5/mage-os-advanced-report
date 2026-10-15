@@ -3,9 +3,11 @@ name: CI
 on:
   push:
     branches:
+      - master
       - main
   pull_request:
     branches:
+      - master
       - main
 
 jobs:
@@ -15,8 +17,13 @@ jobs:
       matrix: ${{ steps.supported-version.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+      # Latest patch of each Magento Open Source line at or above the 2.4.7 floor
+      # (PHP 8.3 / 8.4 / 8.5, matching the module's PHP constraint).
       - uses: graycoreio/github-actions-magento2/supported-version@v8.11.0
         id: supported-version
+        with:
+          kind: custom
+          custom_versions: magento/project-community-edition:2.4.7-p10,magento/project-community-edition:2.4.8-p5,magento/project-community-edition:2.4.9
   check-extension:
     needs: compute_matrix
     uses: graycoreio/github-actions-magento2/.github/workflows/check-extension.yaml@v8.11.0
@@ -26,11 +33,18 @@ jobs:
       composer_auth: ${{ secrets.COMPOSER_AUTH }}
 
   quality:
-    name: Code quality
+    name: Code quality (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # phpunit/phpunit ^13.3 (require-dev) needs PHP >= 8.4.
+        php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
-        with: { php-version: '8.3' }
+        with: { php-version: '${{ matrix.php }}' }
       - run: composer install --no-interaction --prefer-dist
       - run: composer test:cs-fixer
+      - run: composer test:unit
+      - run: composer test:xml

@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_items" label="Items" acl="MageOS_AdvancedReport::sales" area="sales">
+        <source name="mysql" table="sales_order_item" alias="main"/>
+        <join code="category" table="catalog_category_product" alias="category" type="left"
+              condition="category.product_id = main.product_id" cardinality="many"/>
+    </dataset>
+</config>

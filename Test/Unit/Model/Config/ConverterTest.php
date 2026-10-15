@@ -34,6 +34,7 @@ final class ConverterTest extends TestCase
                         'type' => 'left',
                         'condition' => 'payment.parent_id = main.entity_id',
                         'requires' => [],
+                        'cardinality' => 'one',
                     ],
                 ],
                 'fields' => [
@@ -79,6 +80,20 @@ final class ConverterTest extends TestCase
             ],
             $result['datasets']['sales_orders']
         );
+    }
+
+    public function testItConvertsJoinCardinalityManyFromXml(): void
+    {
+        $result = (new Converter())->convert($this->loadFixture('join_cardinality_many.xml'));
+
+        self::assertSame('many', $result['datasets']['sales_items']['joins']['category']['cardinality']);
+    }
+
+    public function testItDefaultsJoinCardinalityToOneWhenAttributeIsMissing(): void
+    {
+        $result = (new Converter())->convert($this->loadFixture('dataset_fields_joins_metrics_dimensions.xml'));
+
+        self::assertSame('one', $result['datasets']['sales_orders']['joins']['payment']['cardinality']);
     }
 
     public function testItConvertsPresetsWithMetricsDimensionsFiltersSortAndCompareSettings(): void

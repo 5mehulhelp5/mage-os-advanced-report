@@ -59,10 +59,12 @@
         "test:unit": "phpunit -c phpunit.xml.dist --testsuite unit",
         "test:phpstan": "phpstan analyse --memory-limit=1G",
         "test:cs-fixer": "php-cs-fixer fix --dry-run --diff --allow-risky=yes",
+        "test:xml": "php dev/validate-xml.php",
         "test": [
             "@test:unit",
             "@test:phpstan",
-            "@test:cs-fixer"
+            "@test:cs-fixer",
+            "@test:xml"
         ]
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Definition;
 
+use Magento\Framework\Phrase;
+
 /**
  * Builds the immutable {@see Dataset} and {@see Preset} value objects from the plain,
  * code-keyed arrays produced by {@see \MageOS\AdvancedReport\Model\Config\Converter}.
@@ -163,10 +165,27 @@ class DefinitionFactory
                 alias: $data['alias'],
                 condition: $data['condition'],
                 requires: $data['requires'],
+                cardinality: $this->createJoinCardinality($data, (string) $code),
             );
         }
 
         return $joins;
+    }
+
+    /**
+     * Resolves a join's cardinality, defaulting to `one` for arrays cached before the attribute existed.
+     *
+     * @param array<string,mixed> $data
+     * @param string $joinCode
+     * @throws InvalidDefinitionException
+     */
+    private function createJoinCardinality(array $data, string $joinCode): JoinCardinality
+    {
+        $value = $data['cardinality'] ?? JoinCardinality::ONE->value;
+
+        return JoinCardinality::tryFrom($value) ?? throw new InvalidDefinitionException(
+            new Phrase('Join "%1" has unknown cardinality "%2".', [$joinCode, $value])
+        );
     }
 
     /**

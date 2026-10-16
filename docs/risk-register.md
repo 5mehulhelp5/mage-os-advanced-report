@@ -29,4 +29,4 @@ p1f (documentation and limits).
 | R20 | Security | PII dimensions are gated only by the dataset ACL. Decision: require `Magento_Customer::manage`. | `customers`, `customer_orders` PII dimensions | high | p1c | open |
 | R21 | Cache | Cache freshness is TTL-only (no invalidation on order/refund events); documented by decision. | all datasets (cache) | low | p1e | accepted, documented |
 | R22 | Testing | No integration coverage existed before p1a. Now covered by the order scenario (`Test/Integration`, `make integration`) with hand-computed values, no metric discrepancies found; the scenario covers a subset of datasets. | all datasets | medium | p1b | partly mitigated |
-| R23 | Compatibility | Magento 2.4.7 compatibility is unverified until the first CI run (matrix configured, not yet observed green; branch not pushed). | module on 2.4.7-p10 / PHP 8.3 | medium | p1b | open |
+| R23 | Compatibility | Magento 2.4.7 compatibility is unverified: 2.4.7-p10 is out of the CI matrix because Composer blocks its league/flysystem 2.x (advisory PKSA-w9tt-7782-78jx) and no fixed 2.x exists. | module on 2.4.7-p10 / PHP 8.3 | medium | p1b | open |

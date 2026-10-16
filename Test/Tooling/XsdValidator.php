@@ -17,7 +17,7 @@ final class XsdValidator
     {
         $xml = file_get_contents($xmlPath);
         if ($xml === false) {
-            throw new RuntimeException(sprintf('Cannot read XML file "%s".', $xmlPath));
+            throw new RuntimeException(\sprintf('Cannot read XML file "%s".', $xmlPath));
         }
 
         $previous = libxml_use_internal_errors(true);
@@ -29,7 +29,7 @@ final class XsdValidator
             $document->schemaValidate($xsdPath);
 
             return array_map(
-                static fn (LibXMLError $error): string => sprintf('Line %d: %s', $error->line, trim($error->message)),
+                static fn (LibXMLError $error): string => \sprintf('Line %d: %s', $error->line, trim($error->message)),
                 libxml_get_errors()
             );
         } finally {

@@ -137,7 +137,10 @@ class MetricInventoryBuilder
         $joins = [];
         $seen = [];
         foreach ($fields as $field) {
-            foreach ($field->sourceMappings[self::SOURCE]->joins ?? [] as $joinCode) {
+            if (!isset($field->sourceMappings[self::SOURCE])) {
+                continue;
+            }
+            foreach ($field->sourceMappings[self::SOURCE]->joins as $joinCode) {
                 $this->addJoin($dataset, $joinCode, $joins, $seen);
             }
         }

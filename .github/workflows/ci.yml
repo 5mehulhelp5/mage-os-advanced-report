@@ -11,41 +11,291 @@ on:
       - master
       - main
 
+# Built from the graycore actions instead of their reusable check-extension workflow:
+# its coding-standard job (phpcs) has no `enabled` guard, so it cannot be disabled through
+# .github/check-extension.json, and it fails the gate. Code style is checked by PHP-CS-Fixer
+# in the quality job instead. .github/check-extension.json still gates the jobs below and
+# narrows the services each one gets.
+
+env:
+  # Default graycore mirror; serves magento/* without repo.magento.com credentials.
+  MAGENTO_REPOSITORY: https://mirror.mage-os.org/
+
 jobs:
-  compute_matrix:
+  compute-matrix:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.supported-version.outputs.matrix }}
+      resolved: ${{ steps.resolve.outputs.resolved }}
     steps:
+      # resolve-check-config reads .github/check-extension.json from the workspace.
       - uses: actions/checkout@v7
-      # Latest patch of each Magento Open Source line at or above the 2.4.7 floor
-      # (PHP 8.3 / 8.4 / 8.5, matching the module's PHP constraint).
+
       - uses: graycoreio/github-actions-magento2/supported-version@v8.11.0
         id: supported-version
-        with:
-          kind: custom
-          custom_versions: magento/project-community-edition:2.4.7-p10,magento/project-community-edition:2.4.8-p5,magento/project-community-edition:2.4.9
-  check-extension:
-    needs: compute_matrix
-    uses: graycoreio/github-actions-magento2/.github/workflows/check-extension.yaml@v8.11.0
-    with:
-      matrix: ${{ needs.compute_matrix.outputs.matrix }}
-    secrets:
-      composer_auth: ${{ secrets.COMPOSER_AUTH }}
 
+      # Keep only entries matching the module PHP constraint (~8.3 || ~8.4 || ~8.5).
+      # Temporary: 2.4.7-p10 is left out too. Composer refuses its league/flysystem 2.x
+      # (advisory PKSA-w9tt-7782-78jx) and no fixed 2.x exists. While it is out, nothing tests
+      # the 2.4.7 floor. Drop the version filter once a fix is released.
+      - id: matrix
+        env:
+          MATRIX: ${{ steps.supported-version.outputs.matrix }}
+        run: |
+          echo "matrix=$(jq -c --arg v '2.4.7-p10' '
+            .include |= map(select(.version != $v and (.php | tostring | test("^8\\.[345]$"))))
+            | .include as $kept
+            | .magento |= map(select(. as $m | any($kept[]; .magento == $m)))
+          ' <<< "$MATRIX")" >> "$GITHUB_OUTPUT"
+
+      - env:
+          MATRIX: ${{ steps.matrix.outputs.matrix }}
+        run: echo "$MATRIX"
+
+      - uses: graycoreio/github-actions-magento2/resolve-check-config@v8.11.0
+        id: resolve
+        with:
+          kind: extension
+          matrix: ${{ steps.matrix.outputs.matrix }}
+
+  # PHPUnit 13 (require-dev) unit suite, PHP-CS-Fixer, PHPStan and XSD validation,
+  # run on the standalone module install. phpunit/phpunit ^13.3 needs PHP >= 8.4.
   quality:
     name: Code quality (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # phpunit/phpunit ^13.3 (require-dev) needs PHP >= 8.4.
         php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v7
+
       - uses: shivammathur/setup-php@v2
-        with: { php-version: '${{ matrix.php }}' }
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+
       - run: composer install --no-interaction --prefer-dist
       - run: composer test:cs-fixer
+      - run: composer test:phpstan -- --no-progress --error-format=github
       - run: composer test:unit
       - run: composer test:xml
+
+  # setup:di:compile inside a Magento install, for every supported version.
+  compile-extension:
+    needs: compute-matrix
+    if: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['compile-extension'].enabled != false }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['compile-extension'].matrix }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: graycoreio/github-actions-magento2/setup-magento@v8.11.0
+        id: setup-magento
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v${{ matrix.composer }}
+          mode: extension
+          magento_version: ${{ matrix.magento }}
+          magento_repository: ${{ env.MAGENTO_REPOSITORY }}
+          composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Add extension repository
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config repositories.local path ${{ github.workspace }}
+
+      - name: Get package name
+        id: package
+        run: echo "name=$(jq -r .name "${{ github.workspace }}/composer.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Require extension
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer require "${{ steps.package.outputs.name }}:@dev" --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Composer update
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer update --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - uses: graycoreio/github-actions-magento2/cache-magento@v8.11.0
+        with:
+          composer_cache_key: ${{ matrix.magento }}
+          working-directory: ${{ steps.setup-magento.outputs.path }}
+
+      - name: Composer install
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+          COMPOSER_MIRROR_PATH_REPOS: 1
+
+      - uses: graycoreio/github-actions-magento2/setup-di-compile@v8.11.0
+        with:
+          path: ${{ steps.setup-magento.outputs.path }}
+
+  # Test/Unit with the PHPUnit bundled in each Magento version.
+  unit-test-extension:
+    needs: compute-matrix
+    if: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['unit-test-extension'].enabled != false }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['unit-test-extension'].matrix }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: graycoreio/github-actions-magento2/setup-magento@v8.11.0
+        id: setup-magento
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v${{ matrix.composer }}
+          mode: extension
+          magento_version: ${{ matrix.magento }}
+          magento_repository: ${{ env.MAGENTO_REPOSITORY }}
+          composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Add extension repository
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config repositories.local path ${{ github.workspace }}
+
+      - name: Get package name
+        id: package
+        run: echo "name=$(jq -r .name "${{ github.workspace }}/composer.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Require extension
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer require "${{ steps.package.outputs.name }}:@dev" --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Composer update
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer update --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - uses: graycoreio/github-actions-magento2/cache-magento@v8.11.0
+        with:
+          composer_cache_key: ${{ matrix.magento }}
+          working-directory: ${{ steps.setup-magento.outputs.path }}
+
+      - name: Composer install
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+          COMPOSER_MIRROR_PATH_REPOS: 1
+
+      - name: Configure phpunit.xml.dist
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: |
+          cat > /tmp/testsuite.xml << 'EOF'
+                  <testsuite name="Extension_Unit_Tests">
+                      <directory>../../../vendor/${{ steps.package.outputs.name }}/Test/Unit</directory>
+                  </testsuite>
+          EOF
+          sed -i '/<testsuites>/r /tmp/testsuite.xml' dev/tests/unit/phpunit.xml.dist
+          # Allure breaks the unit runner: https://github.com/magento/magento2/issues/36702
+          sed -i '/<extensions>/,/<\/extensions>/d' dev/tests/unit/phpunit.xml.dist
+
+      - name: Run extension unit tests
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist --testsuite Extension_Unit_Tests
+
+  # Test/Integration inside a Magento install, with the services from the matrix.
+  integration-test:
+    needs: compute-matrix
+    if: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['integration_test'].enabled != false }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['integration_test'].matrix }}
+      fail-fast: false
+    services: ${{ matrix.services }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: graycoreio/github-actions-magento2/setup-magento@v8.11.0
+        id: setup-magento
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v${{ matrix.composer }}
+          mode: extension
+          magento_version: ${{ matrix.magento }}
+          magento_repository: ${{ env.MAGENTO_REPOSITORY }}
+          composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Add extension repository
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config repositories.local path ${{ github.workspace }}
+
+      - name: Get package name
+        id: package
+        run: echo "name=$(jq -r .name "${{ github.workspace }}/composer.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Require extension
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer require "${{ steps.package.outputs.name }}:@dev" --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - name: Composer update
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer update --no-install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+
+      - uses: graycoreio/github-actions-magento2/cache-magento@v8.11.0
+        with:
+          composer_cache_key: ${{ matrix.magento }}
+          working-directory: ${{ steps.setup-magento.outputs.path }}
+
+      - name: Composer install
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer install
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+          COMPOSER_MIRROR_PATH_REPOS: 1
+
+      - uses: graycoreio/github-actions-magento2/get-magento-version@v8.11.0
+        id: magento-version
+        with:
+          working-directory: ${{ steps.setup-magento.outputs.path }}
+
+      - name: Replace configuration settings for env
+        working-directory: ${{ steps.setup-magento.outputs.path }}/dev/tests/integration
+        run: |
+          sed -i "s/'db-host' => 'localhost'/'db-host' => '127.0.0.1'/" etc/install-config-mysql.php.dist
+          sed -i "s/'db-user' => 'root'/'db-user' => 'user'/" etc/install-config-mysql.php.dist
+          sed -i "s/'db-password' => '123123q'/'db-password' => 'password'/" etc/install-config-mysql.php.dist
+          sed -i "s/'elasticsearch-host' => 'localhost'/'elasticsearch-host' => '127.0.0.1'/" etc/install-config-mysql.php.dist
+          sed -i "s/'amqp-host' => 'localhost'/'amqp-host' => '127.0.0.1'/" etc/install-config-mysql.php.dist
+
+      - name: Enable log-bin-trust-function-creators
+        run: mysql -h127.0.0.1 -uroot -prootpassword -e "SET GLOBAL log_bin_trust_function_creators = 1;"
+
+      - name: Configure phpunit.xml.dist
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: |
+          cat > /tmp/testsuite.xml << 'EOF'
+                  <testsuite name="Extension_Integration_Tests">
+                      <directory>../../../vendor/${{ steps.package.outputs.name }}/Test/Integration</directory>
+                  </testsuite>
+          EOF
+          sed -i '/<testsuites>/r /tmp/testsuite.xml' dev/tests/integration/phpunit.xml.dist
+
+      - name: Run integration tests
+        working-directory: ${{ steps.setup-magento.outputs.path }}/dev/tests/integration
+        run: ../../../vendor/bin/phpunit -c phpunit.xml.dist --testsuite Extension_Integration_Tests
+
+      - name: Upload test sandbox dir
+        uses: actions/upload-artifact@v7
+        if: failure() && steps.magento-version.outputs.version != ''
+        with:
+          name: sandbox-data-${{ fromJSON(steps.magento-version.outputs.version) }}
+          path: ${{ steps.setup-magento.outputs.path }}/dev/tests/integration/tmp/sandbox-*
+          retention-days: 3

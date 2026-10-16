@@ -111,6 +111,24 @@ final class DerivedMetricCalculatorTest extends TestCase
         self::assertNull($result['rows'][0]['metrics']['avg_order_value']);
     }
 
+    public function testItReturnsNullForARatioWhoseDenominatorIsZero(): void
+    {
+        $dataset = $this->buildDataset([
+            $this->aggregateMetric('net_sales'),
+            $this->aggregateMetric('orders_count'),
+            $this->derivedMetric('avg_order_value', 'net_sales / orders_count'),
+        ]);
+
+        $result = $this->calculator->apply(
+            $dataset,
+            ['avg_order_value'],
+            [],
+            ['net_sales' => 0.0, 'orders_count' => 0]
+        );
+
+        self::assertNull($result['totals']['avg_order_value']);
+    }
+
     public function testItStripsHelperAggregatesThatWereNotRequested(): void
     {
         $dataset = $this->buildDataset([

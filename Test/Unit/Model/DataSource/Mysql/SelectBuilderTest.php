@@ -67,7 +67,7 @@ final class SelectBuilderTest extends TestCase
         self::assertSame(
             "SELECT main.customer_group_id AS `customer_group_id`,"
             . " DATE_FORMAT(CONVERT_TZ(main.created_at, 'UTC', 'UTC'), '%Y-%m') AS `order_date`,"
-            . " COUNT(main.entity_id) AS `orders`, SUM(main.base_subtotal) AS `gross`"
+            . " COUNT(main.entity_id) AS `orders`, COALESCE(SUM(main.base_subtotal), 0) AS `gross`"
             . " FROM `sales_order` AS `main`"
             . " WHERE (main.status NOT IN ('canceled'))"
             . " GROUP BY `customer_group_id`, `order_date`",
@@ -80,7 +80,7 @@ final class SelectBuilderTest extends TestCase
         $sql = $this->sql($this->query(metrics: ['new_gross', 'new_customers']));
 
         self::assertStringContainsString(
-            'SUM(CASE WHEN main.is_new THEN main.base_subtotal ELSE 0 END) AS `new_gross`',
+            'COALESCE(SUM(CASE WHEN main.is_new THEN main.base_subtotal ELSE 0 END), 0) AS `new_gross`',
             $sql
         );
         self::assertStringContainsString(
@@ -183,7 +183,7 @@ final class SelectBuilderTest extends TestCase
 
         $sql = $this->sql($this->query(metrics: ['first_orders']), providers: ['first_order' => $provider]);
 
-        self::assertStringContainsString('SUM((SELECT 1)) AS `first_orders`', $sql);
+        self::assertStringContainsString('COALESCE(SUM((SELECT 1)), 0) AS `first_orders`', $sql);
     }
 
     public function testItOpensTheConfiguredConnectionByConnectionName(): void
@@ -344,7 +344,7 @@ final class SelectBuilderTest extends TestCase
         $sql = $this->normalizeSql($this->builderFor()->buildPage($query));
 
         self::assertStringEndsWith(
-            'ORDER BY (SUM(main.base_subtotal) / NULLIF(COUNT(main.entity_id), 0)) DESC, `method` ASC',
+            'ORDER BY (COALESCE(SUM(main.base_subtotal), 0) / NULLIF(COUNT(main.entity_id), 0)) DESC, `method` ASC',
             $sql
         );
         self::assertStringNotContainsString('LIMIT', $sql);
@@ -389,7 +389,7 @@ final class SelectBuilderTest extends TestCase
 
         self::assertSame(
             "SELECT DATE_FORMAT(main.created_at, '%Y-%m-%d %H:00:00') AS `utc_hour`,"
-            . " payment.method AS `method`, COUNT(main.entity_id) AS `orders`, SUM(main.base_subtotal) AS `gross`"
+            . " payment.method AS `method`, COUNT(main.entity_id) AS `orders`, COALESCE(SUM(main.base_subtotal), 0) AS `gross`"
             . " FROM `sales_order` AS `main`"
             . " LEFT JOIN `sales_order_payment` AS `payment` ON payment.parent_id = main.entity_id"
             . " WHERE (main.status NOT IN ('canceled')) GROUP BY `utc_hour`, `method` LIMIT 5001",

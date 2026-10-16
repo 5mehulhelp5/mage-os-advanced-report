@@ -23,7 +23,7 @@ Reports are not hard-coded queries. Every report is a combination of a few build
 
 | Concept | What it is | Example |
 |---|---|---|
-| **Dataset** | A reportable entity with one row per record: its base table (or a base select provider), the ACL resource that protects it, the area it belongs to (`sales`, `catalog`, `customers`) and the implicit filters always applied to it. | `sales_orders` (one row per order), `sales_items` (one row per top-level order item), `customer_orders`, `customers`, `catalog_stock`. |
+| **Dataset** | A reportable entity with one row per record: its base table (or a base select provider), the ACL resource that protects it, the area it belongs to (`sales`, `catalog`, `customers`) and the implicit filters always applied to it. | `sales_orders` (one row per order), `sales_items` (one row per top-level order item), `customer_orders`, `customers`, `catalog_stock`, `catalog_salable` (MSI only). |
 | **Field** | A named, typed SQL expression on the dataset rows (`money`, `integer`, `decimal`, `boolean`, `string`, `id`, `date`). It may need one or more joins. Every field can be used as a filter. | `gross_sales_amount` = subtotal minus canceled subtotal; `billing_country` = billing address country (needs the `billing_address` join). |
 | **Join** | A table joined to the dataset, declared once and added to the query only when a selected field needs it. A join can `require` another join. | `payment`, `billing_address`, `store`. |
 | **Metric** | A number to measure. Either an **aggregate** (`sum`, `count`, `count_distinct`, `min`, `max`, `avg`) of a field, optionally restricted to the rows where a boolean field is true (`condition`), or a **formula** over other metrics (`+ - * /`, parentheses, numbers). | `orders` = `COUNT(order_id)`; `net_sales` = `gross_sales - discounts - returns`; `aov` = `net_sales / orders`. |
@@ -125,7 +125,7 @@ waiting time uses the first shipment (unshipped orders are excluded).
 | `adjustments` | Adjustments | `SUM(adjustment_amount)` | Credit memo adjustment fees: extra refunded amount minus refund fees. |
 | `total_sales` | Total sales | `net_sales + shipping + taxes - adjustments` | Net sales plus shipping plus taxes, minus credit memo adjustments. |
 | `aov` | Average order value | `net_sales / orders` | Average order value: net sales divided by the number of orders. |
-| `units` | Units | `SUM(units_qty)` | Total quantity of items ordered. |
+| `units` | Units | `SUM(units_qty)` | Total quantity of items ordered, net of canceled quantities (parent items). |
 | `new_customer_orders` | New customer orders | `SUM(is_first_order)` | Orders placed by a customer without a prior order. Limitation: a guest checkout later followed by a registered account for the same person is counted as a new customer twice. |
 | `returning_customer_orders` | Returning customer orders | `orders - new_customer_orders` | Orders minus new customer orders. |
 
@@ -182,14 +182,25 @@ Note: a product repeated on two separate lines of the same order is counted once
 
 | Metric | Label | Definition | Notes |
 |---|---|---|---|
-| `qty_on_hand` | Qty on hand | `SUM(qty)` | Total quantity on hand across sources. |
-| `stock_value_cost` | Stock value (cost) | `SUM(value_cost)` | Inventory value at cost. |
-| `stock_value_retail` | Stock value (retail) | `SUM(value_retail)` | Inventory value at retail price. |
+| `qty_on_hand` | Qty on hand | `SUM(qty)` | Total quantity on hand across enabled sources. Source items of disabled sources (`inventory_source.enabled = 0`) are excluded; items with status 0 (out of stock at the source) still count their physical quantity. |
+| `stock_value_cost` | Stock value (cost) | `SUM(value_cost)` | Inventory value at cost: physical quantity times the global (store 0) `cost` attribute; products without a cost count as 0. |
+| `stock_value_retail` | Stock value (retail) | `SUM(value_retail)` | Inventory value at retail price: physical quantity times the global (store 0) `price` attribute. |
 | `skus_in_stock` | SKUs in stock | `COUNT DISTINCT(product_id)` where `in_stock` | Number of distinct SKUs with a quantity on hand greater than zero. |
 | `units_sold_30d` | Units sold (30 days) | Produced by a preset query | Units sold over the last 30 days. |
 | `avg_daily_sales` | Avg daily sales | Produced by a preset query | Units sold over the last 30 days divided by 30. |
 | `coverage_days` | Coverage (days) | Produced by a preset query | Days the current stock lasts at the average daily sales; empty when there are no sales. |
 | `days_since_last_sale` | Days since last sale | Produced by a preset query | Days since the last counted sale; empty when the product was never sold. |
+
+### `catalog_salable` (Salable stock)
+
+MSI only: the dataset (and any preset on it) is dropped from the registry when `Magento_InventoryApi`, `Magento_InventoryIndexer`, `Magento_InventoryReservations` or `Magento_InventoryCatalog` is disabled. One row per SKU and stock; configurable, bundle and grouped products are excluded.
+
+| Metric | Label | Definition | Notes |
+|---|---|---|---|
+| `stock_qty` | Stock quantity | `SUM(stock_qty)` | Quantity in the stock index, before pending reservations. |
+| `reserved_qty` | Reserved quantity | `SUM(reserved_qty)` | Quantity reserved by pending orders (positive when reserved). |
+| `salable_qty` | Salable quantity | `SUM(salable_qty)` | Stock quantity minus reserved quantity minus the minimum quantity, or 0 when the stock index marks the SKU not salable; can be negative like in core. "Available" means salable in this module. |
+| `skus_salable` | SKUs salable | `COUNT DISTINCT(product_id)` where `salable_qty > 0` | Number of distinct SKUs with a salable quantity greater than zero. |
 
 ### Customer dimensions
 
@@ -450,10 +461,11 @@ bin/magento advanced-report:inventory --output=docs/metric-inventory.md
 
 ## Known limits
 
-The full list with severity and owner is in the [risk register](docs/risk-register.md).
+The full list with severity and owner is in the [risk register](docs/risk-register.md). Metric semantics are in the [metric definitions](docs/metric-definitions.md).
 
 ## Documentation
 
+- [Metric definitions](docs/metric-definitions.md): business definition of every metric (formula, cancel/refund treatment, currency, date attribution, additivity, known limits) with the integration tests that prove it, and physical vs reserved vs salable quantities.
 - [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.
 - [Compatibility](docs/compatibility.md): supported Magento, PHP and database versions and the CI job enforcing each.

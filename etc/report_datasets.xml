@@ -58,7 +58,7 @@
             <mysql expression="(COALESCE(main.base_adjustment_positive, 0) - COALESCE(main.base_adjustment_negative, 0))"/>
         </field>
         <field code="units_qty" label="Units" type="decimal">
-            <mysql expression="COALESCE(main.total_qty_ordered, 0)"/>
+            <mysql expressionProvider="units_net_of_canceled"/>
         </field>
         <field code="payment_method" label="Payment method" type="string">
             <mysql expression="payment.method" joins="payment"/>
@@ -122,7 +122,7 @@
         <metric code="aov" label="Average order value" format="money" formula="net_sales / orders"
                 description="Average order value: net sales divided by the number of orders."/>
         <metric code="units" label="Units" format="number" aggregate="sum" field="units_qty"
-                description="Total quantity of items ordered."/>
+                description="Total quantity of items ordered, net of canceled quantities."/>
         <metric code="new_customer_orders" label="New customer orders" format="integer" aggregate="sum"
                 field="is_first_order"
                 description="Orders placed by a customer without a prior order. Limitation: a guest checkout later followed by a registered account for the same person is counted as a new customer twice."/>
@@ -151,6 +151,7 @@
                    labelResolver="MageOS\AdvancedReport\Model\Label\PaymentMethodLabelResolver"/>
         <dimension code="shipping_method" label="Shipping method" field="shipping_method"
                    labelResolver="MageOS\AdvancedReport\Model\Label\ShippingMethodLabelResolver"/>
+        <dimension code="status" label="Status" field="status"/>
         <dimension code="coupon_code" label="Coupon code" field="coupon_code"/>
         <dimension code="billing_postcode" label="Billing zipcode" field="billing_postcode"/>
         <dimension code="birth_year" label="Year of birth" field="birth_year"/>
@@ -590,6 +591,52 @@
         <dimension code="product_id" label="Product" field="product_id"
                    labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
         <dimension code="source_code" label="Source" field="source_code"/>
+    </dataset>
+
+    <!--
+        MSI-only: stock, reserved and salable quantity per SKU x stock. Dropped from the registry (with
+        its presets) when the MSI modules are disabled, see MsiDatasetAvailability.
+    -->
+    <dataset code="catalog_salable" label="Salable stock" acl="MageOS_AdvancedReport::catalog" area="catalog" dateless="true">
+        <source name="mysql" provider="MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider"/>
+
+        <field code="stock_id" label="Stock" type="id">
+            <mysql expression="main.stock_id"/>
+        </field>
+        <field code="sku" label="SKU" type="string">
+            <mysql expression="main.sku"/>
+        </field>
+        <field code="product_id" label="Product ID" type="id">
+            <mysql expression="main.product_id"/>
+        </field>
+        <field code="stock_qty" label="Stock quantity" type="decimal">
+            <mysql expression="main.stock_qty"/>
+        </field>
+        <field code="reserved_qty" label="Reserved quantity" type="decimal">
+            <mysql expression="main.reserved_qty"/>
+        </field>
+        <field code="salable_qty" label="Salable quantity" type="decimal">
+            <mysql expression="main.salable_qty"/>
+        </field>
+        <field code="is_salable_qty" label="Has salable quantity" type="boolean" description="Whether the salable quantity is greater than zero.">
+            <mysql expression="(main.salable_qty > 0)"/>
+        </field>
+
+        <metric code="stock_qty" label="Stock quantity" format="number" aggregate="sum" field="stock_qty"
+                description="Quantity in the stock index, before pending reservations."/>
+        <metric code="reserved_qty" label="Reserved quantity" format="number" aggregate="sum" field="reserved_qty"
+                description="Quantity reserved by pending orders (positive when reserved)."/>
+        <metric code="salable_qty" label="Salable quantity" format="number" aggregate="sum" field="salable_qty"
+                description="Quantity that can still be sold: stock quantity minus reservations and the minimum quantity."/>
+        <metric code="skus_salable" label="SKUs salable" format="integer" aggregate="count_distinct"
+                field="product_id" condition="is_salable_qty"
+                description="Number of distinct SKUs with a salable quantity greater than zero."/>
+
+        <dimension code="stock_id" label="Stock" field="stock_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StockLabelResolver"/>
+        <dimension code="sku" label="SKU" field="sku"/>
+        <dimension code="product_id" label="Product" field="product_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
     </dataset>
 
     <!-- Sales presets (area sales, dataset sales_orders). -->

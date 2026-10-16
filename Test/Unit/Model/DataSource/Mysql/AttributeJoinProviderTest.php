@@ -12,6 +12,7 @@ use MageOS\AdvancedReport\Model\DataSource\Mysql\AttributeJoinProvider;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Field;
 use MageOS\AdvancedReport\Model\Definition\FieldType;
+use MageOS\AdvancedReport\Model\Definition\Join;
 use MageOS\AdvancedReport\Model\Definition\SourceMapping;
 use MageOS\AdvancedReport\Model\Label\AttributeOptionLabelResolver;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -53,7 +54,8 @@ final class AttributeJoinProviderTest extends TestCase
 
     public function testItJoinsAttributeValuesOnTheChildSimpleProductWhenPresentAndRequiresTheChildJoin(): void
     {
-        $extended = $this->provider(['color' => ['select', 92]])->extend($this->dataset(['product_id']));
+        $dataset = $this->dataset(['product_id'], ['child' => new Join('child', 'child_t', 'child', 'child.id = 1')]);
+        $extended = $this->provider(['color' => ['select', 92]])->extend($dataset);
 
         $join = $extended->getJoin('attr_color');
         self::assertStringContainsString(
@@ -61,6 +63,16 @@ final class AttributeJoinProviderTest extends TestCase
             $join->condition
         );
         self::assertSame(['child'], $join->requires);
+    }
+
+    public function testItJoinsAttributesOnMainProductIdWithoutRequiresOnDatasetsWithoutAChildJoin(): void
+    {
+        $extended = $this->provider(['color' => ['select', 92]])->extend($this->dataset(['product_id']));
+
+        $join = $extended->getJoin('attr_color');
+        self::assertStringContainsString('attr_color.entity_id = main.product_id', $join->condition);
+        self::assertStringNotContainsString('child', $join->condition);
+        self::assertSame([], $join->requires);
     }
 
     public function testItLeavesDatasetsWithoutProductIdFieldUntouched(): void
@@ -108,14 +120,15 @@ final class AttributeJoinProviderTest extends TestCase
 
     /**
      * @param string[] $fieldCodes
+     * @param array<string,Join> $joins
      */
-    private function dataset(array $fieldCodes): Dataset
+    private function dataset(array $fieldCodes, array $joins = []): Dataset
     {
         $fields = [];
         foreach ($fieldCodes as $code) {
             $fields[$code] = new Field($code, $code, FieldType::ID, ['mysql' => new SourceMapping('main.' . $code)]);
         }
 
-        return new Dataset('sales_items', 'Items', 'acl', 'sales', false, 'soi', 'main', null, [], $fields, [], [], []);
+        return new Dataset('sales_items', 'Items', 'acl', 'sales', false, 'soi', 'main', null, [], $fields, $joins, [], []);
     }
 }

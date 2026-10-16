@@ -11,6 +11,9 @@ use MageOS\AdvancedReport\Model\Definition\Metric;
 
 /**
  * Builds the SQL aggregate expression of an aggregate metric.
+ *
+ * SUM aggregates are wrapped in COALESCE(..., 0) so empty periods report 0; AVG/MIN/MAX stay NULL on no rows.
+ * Derived ratios are null (never 0) when their denominator is zero, see DerivedMetricCalculator.
  */
 class AggregateExpressionBuilder
 {
@@ -37,6 +40,7 @@ class AggregateExpressionBuilder
 
         return match ($function) {
             AggregateFunction::COUNT_DISTINCT => \sprintf('COUNT(DISTINCT %s)', $expression),
+            AggregateFunction::SUM => \sprintf('COALESCE(SUM(%s), 0)', $expression),
             default => \sprintf('%s(%s)', strtoupper($function->value), $expression),
         };
     }

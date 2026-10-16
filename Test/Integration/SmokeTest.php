@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Integration;
 
+use Magento\Framework\Module\Manager as ModuleManager;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\TestFramework\Fixture\AppArea;
 use Magento\TestFramework\Fixture\AppIsolation;
@@ -48,6 +49,10 @@ final class SmokeTest extends TestCase
 
         $this->assertNotEmpty($raw['datasets']);
         foreach ($raw['datasets'] as $code => $rawDataset) {
+            if ($code === 'catalog_salable' && !$this->isMsiEnabled()) {
+                $this->assertArrayNotHasKey($code, $registry->getDatasets());
+                continue;
+            }
             $dataset = $registry->getDataset($code);
             $this->assertEqualsCanonicalizing(
                 array_keys($rawDataset['metrics']),
@@ -75,6 +80,9 @@ final class SmokeTest extends TestCase
             if ($usesPlaceholder) {
                 continue;
             }
+            if (!$this->isMsiEnabled() && $rawPreset['dataset'] === 'catalog_salable') {
+                continue;
+            }
             $this->assertArrayHasKey($code, $presets, "Preset {$code} was not loaded");
         }
     }
@@ -96,5 +104,32 @@ final class SmokeTest extends TestCase
             $result = $this->runner->runPreset($code, '2026-01-01', '2026-01-31');
             $this->assertGreaterThanOrEqual(0, $result->getTotalRowCount(), "Preset {$code}");
         }
+    }
+
+    public function testItRunsTheCatalogSalableDatasetThroughTheReportRunner(): void
+    {
+        if (!$this->isMsiEnabled()) {
+            $this->markTestSkipped('MSI modules are disabled.');
+        }
+
+        $result = $this->runner->run(
+            'catalog_salable',
+            ['stock_qty', 'reserved_qty', 'salable_qty', 'skus_salable'],
+            [['code' => 'stock_id', 'granularity' => null]]
+        );
+
+        $this->assertGreaterThanOrEqual(0, $result->getTotalRowCount());
+    }
+
+    private function isMsiEnabled(): bool
+    {
+        $moduleManager = Bootstrap::getObjectManager()->get(ModuleManager::class);
+        foreach (['Magento_InventoryApi', 'Magento_InventoryIndexer', 'Magento_InventoryReservations', 'Magento_InventoryCatalog'] as $module) {
+            if (!$moduleManager->isEnabled($module)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

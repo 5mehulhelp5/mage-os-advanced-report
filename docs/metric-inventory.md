@@ -23,7 +23,7 @@ Fan-out dimensions: none
 | `adjustments` | Adjustments | aggregate | sum | `(COALESCE(main.base_adjustment_positive, 0) - COALESCE(main.base_adjustment_negative, 0))` |  |  | timezone, currency, counted_statuses |
 | `total_sales` | Total sales | derived |  | `net_sales + shipping + taxes - adjustments` |  |  | timezone, currency, counted_statuses |
 | `aov` | Average order value | derived |  | `net_sales / orders` |  |  | timezone, currency, counted_statuses |
-| `units` | Units | aggregate | sum | `COALESCE(main.total_qty_ordered, 0)` |  |  | timezone, counted_statuses |
+| `units` | Units | aggregate | sum | `provider:units_net_of_canceled` |  |  | timezone, counted_statuses |
 | `new_customer_orders` | New customer orders | aggregate | sum | `provider:first_order` |  |  | timezone, counted_statuses |
 | `returning_customer_orders` | Returning customer orders | derived |  | `orders - new_customer_orders` |  |  | timezone, counted_statuses |
 
@@ -102,3 +102,16 @@ Fan-out dimensions: none
 | `avg_daily_sales` | Avg daily sales | virtual |  |  |  |  | stock_provider |
 | `coverage_days` | Coverage (days) | virtual |  |  |  |  | stock_provider |
 | `days_since_last_sale` | Days since last sale | virtual |  |  |  |  | stock_provider |
+
+## catalog_salable (Salable stock)
+
+Base: provider: `MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider`
+
+Fan-out dimensions: none
+
+| Metric | Label | Kind | Aggregate | Expression | Joins | Fan-out | Depends on |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `stock_qty` | Stock quantity | aggregate | sum | `main.stock_qty` |  |  | stock_provider |
+| `reserved_qty` | Reserved quantity | aggregate | sum | `main.reserved_qty` |  |  | stock_provider |
+| `salable_qty` | Salable quantity | aggregate | sum | `main.salable_qty` |  |  | stock_provider |
+| `skus_salable` | SKUs salable | aggregate | count_distinct | `main.product_id` |  |  | stock_provider |

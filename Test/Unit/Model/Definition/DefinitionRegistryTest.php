@@ -7,6 +7,7 @@ namespace MageOS\AdvancedReport\Test\Unit\Model\Definition;
 use Magento\Framework\Config\DataInterface;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
+use MageOS\AdvancedReport\Model\Definition\DatasetAvailabilityInterface;
 use MageOS\AdvancedReport\Model\Definition\DatasetExtenderInterface;
 use MageOS\AdvancedReport\Model\Definition\DefinitionFactory;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
@@ -16,6 +17,7 @@ use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 #[CoversClass(DefinitionRegistry::class)]
 #[CoversClass(DefinitionFactory::class)]
@@ -188,6 +190,50 @@ final class DefinitionRegistryTest extends TestCase
         $registry = $this->createRegistry($converted, [$extender]);
 
         self::assertSame('extended', $registry->getDataset('sales_orders')->code);
+    }
+
+    public function testItDropsAnUnavailableDatasetAndItsPresetsBeforeValidation(): void
+    {
+        $converted = [
+            'datasets' => [
+                'sales_orders' => $this->salesOrdersDatasetRaw(),
+                'catalog_stock' => ['code' => 'catalog_stock'] + $this->minimalDatasetRaw('catalog'),
+            ],
+            'presets' => [
+                'sales_overview' => $this->salesOverviewPresetRaw(),
+                'stock_overview' => $this->stockOverviewPresetRaw(),
+            ],
+        ];
+        $availability = $this->createStub(DatasetAvailabilityInterface::class);
+        $availability->method('isAvailable')->willReturnCallback(
+            static fn (Dataset $dataset): bool => $dataset->code !== 'catalog_stock'
+        );
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('info');
+        $configData = $this->createStub(DataInterface::class);
+        $configData->method('get')->willReturn($converted);
+        $validator = $this->createMock(DefinitionValidator::class);
+        $validator->expects(self::once())->method('validate')->willReturnCallback(
+            function (array $datasets, array $presets): array {
+                self::assertSame(['sales_orders'], array_keys($datasets));
+                self::assertSame(['sales_overview'], array_keys($presets));
+
+                return ['datasets' => $datasets, 'presets' => $presets];
+            }
+        );
+
+        $registry = new DefinitionRegistry(
+            $configData,
+            new DefinitionFactory(),
+            $validator,
+            [],
+            [],
+            [$availability],
+            $logger
+        );
+
+        self::assertSame(['sales_orders'], array_keys($registry->getDatasets()));
+        self::assertSame(['sales_overview'], array_keys($registry->getPresets()));
     }
 
     /**

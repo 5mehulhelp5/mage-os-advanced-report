@@ -6,6 +6,7 @@ namespace MageOS\AdvancedReport\Model\Definition;
 
 use Magento\Framework\Config\DataInterface;
 use Magento\Framework\Phrase;
+use Psr\Log\LoggerInterface;
 
 /**
  * Serves the semantic layer (datasets, presets) as immutable value objects, built lazily
@@ -17,7 +18,8 @@ use Magento\Framework\Phrase;
  * 2. build the value objects ({@see DefinitionFactory});
  * 3. dataset extenders (task 021, e.g. synthesized attribute dimensions);
  * 4. preset extenders (task 031, e.g. alternate dimension presets);
- * 5. validation (task 008).
+ * 5. availability: datasets the installation cannot serve (e.g. MSI-only) and their presets are dropped;
+ * 6. validation (task 008).
  */
 class DefinitionRegistry
 {
@@ -42,6 +44,8 @@ class DefinitionRegistry
      * @param DefinitionValidator $definitionValidator
      * @param DatasetExtenderInterface[] $datasetExtenders
      * @param PresetExtenderInterface[] $presetExtenders
+     * @param DatasetAvailabilityInterface[] $datasetAvailability
+     * @param LoggerInterface|null $logger
      */
     public function __construct(
         private readonly DataInterface $configData,
@@ -49,6 +53,8 @@ class DefinitionRegistry
         private readonly DefinitionValidator $definitionValidator,
         private readonly array $datasetExtenders = [],
         private readonly array $presetExtenders = [],
+        private readonly array $datasetAvailability = [],
+        private readonly ?LoggerInterface $logger = null,
     ) {
     }
 
@@ -144,6 +150,8 @@ class DefinitionRegistry
         $presets = $this->definitionFactory->createPresets($converted['presets'] ?? []);
         $presets = $this->extendPresets($presets);
 
+        [$datasets, $presets] = $this->dropUnavailable($datasets, $presets);
+
         $validated = $this->validate($datasets, $presets);
 
         $this->datasets = $validated['datasets'];
@@ -178,6 +186,35 @@ class DefinitionRegistry
         }
 
         return $presets;
+    }
+
+    /**
+     * Drops datasets reported unavailable, together with every preset based on them.
+     *
+     * @param array<string,Dataset> $datasets
+     * @param array<string,Preset> $presets
+     * @return array{0: array<string,Dataset>, 1: array<string,Preset>}
+     */
+    private function dropUnavailable(array $datasets, array $presets): array
+    {
+        $dropped = [];
+        foreach ($datasets as $code => $dataset) {
+            foreach ($this->datasetAvailability as $availability) {
+                if (!$availability->isAvailable($dataset)) {
+                    unset($datasets[$code]);
+                    $dropped[$code] = true;
+                    $this->logger?->info(\sprintf('Dataset "%s" is not available and was dropped.', $code));
+                    break;
+                }
+            }
+        }
+
+        $presets = array_filter(
+            $presets,
+            static fn (Preset $preset): bool => !isset($dropped[$preset->dataset])
+        );
+
+        return [$datasets, $presets];
     }
 
     /**

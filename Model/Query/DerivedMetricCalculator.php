@@ -17,6 +17,9 @@ use MageOS\AdvancedReport\Model\Definition\Metric;
  * Rows use the row shape `['dims' => ..., 'dims_raw' => ..., 'metrics' => [code => value]]`;
  * `dims`/`dims_raw` are passed through untouched. Totals are a flat `[code => value]` map.
  * Derived metrics on totals are recomputed from the total aggregates, never summed from rows.
+ *
+ * Zero-denominator semantics: a ratio whose denominator is zero (or whose operand is null) evaluates to null,
+ * never 0 and never an exception. SUM aggregates are 0 on empty periods, so e.g. `aov` is 0 / 0 = null there.
  */
 class DerivedMetricCalculator
 {

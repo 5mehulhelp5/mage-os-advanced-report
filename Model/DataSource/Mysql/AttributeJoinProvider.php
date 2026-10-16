@@ -25,11 +25,16 @@ use MageOS\AdvancedReport\Model\Label\AttributeOptionLabelResolver;
  * the child), otherwise from the item product. EAV tables are joined on `entity_id` directly:
  * Adobe Commerce staging (`row_id`) is deliberately not supported. Multiselect values are
  * comma separated and bucketed by their raw value.
+ *
+ * Datasets without a `child` join (e.g. the provider-backed `catalog_stock`) have no child to prefer:
+ * their attribute joins do not require `child` and read the value from `main.product_id`. The stock
+ * providers only select cost, price and status themselves, so the synthesized joins never duplicate them.
  */
 class AttributeJoinProvider implements DatasetExtenderInterface
 {
     private const string ENTITY_TYPE = 'catalog_product';
     private const string PRODUCT_FIELD = 'product_id';
+    private const string CHILD_JOIN = 'child';
     private const string LABEL_RESOLVER = AttributeOptionLabelResolver::class;
     private const array VALUE_TABLES = [
         'select' => 'catalog_product_entity_int',
@@ -58,6 +63,7 @@ class AttributeJoinProvider implements DatasetExtenderInterface
         $fields = $dataset->fields;
         $joins = $dataset->joins;
         $dimensions = $dataset->dimensions;
+        $hasChild = isset($dataset->joins[self::CHILD_JOIN]);
         foreach ($this->config->getReportAttributes() as $code) {
             $attribute = $this->loadAttribute($code);
             $table = $attribute !== null ? self::VALUE_TABLES[(string) $attribute->getFrontendInput()] ?? null : null;
@@ -67,8 +73,8 @@ class AttributeJoinProvider implements DatasetExtenderInterface
 
             $key = 'attr_' . $code;
             $label = (string) ($attribute->getDefaultFrontendLabel() ?: $code);
-            $condition = $this->condition($key, (int) $attribute->getAttributeId());
-            $joins[$key] = new Join($key, $table, $key, $condition, ['child']);
+            $condition = $this->condition($key, (int) $attribute->getAttributeId(), $hasChild);
+            $joins[$key] = new Join($key, $table, $key, $condition, $hasChild ? [self::CHILD_JOIN] : []);
             $fields[$key] = new Field(
                 $key,
                 $label,
@@ -105,14 +111,15 @@ class AttributeJoinProvider implements DatasetExtenderInterface
     /**
      * @param string $alias
      * @param int $attributeId
+     * @param bool $hasChild
      */
-    private function condition(string $alias, int $attributeId): string
+    private function condition(string $alias, int $attributeId, bool $hasChild): string
     {
         return \sprintf(
-            '%1$s.entity_id = COALESCE(child.product_id, main.product_id) AND %1$s.attribute_id = %2$d'
-            . ' AND %1$s.store_id = 0',
+            '%1$s.entity_id = %3$s AND %1$s.attribute_id = %2$d AND %1$s.store_id = 0',
             $alias,
             $attributeId,
+            $hasChild ? 'COALESCE(child.product_id, main.product_id)' : 'main.product_id',
         );
     }
 

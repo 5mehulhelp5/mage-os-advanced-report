@@ -26,6 +26,31 @@
             <argument name="presetExtenders" xsi:type="array">
                 <item name="first_report_attribute" xsi:type="object">MageOS\AdvancedReport\Model\Definition\Extender\FirstReportAttributePresetExtender</item>
             </argument>
+            <argument name="datasetAvailability" xsi:type="array">
+                <item name="msi" xsi:type="object">MageOS\AdvancedReport\Model\Stock\MsiDatasetAvailability</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Stock\MsiDatasetAvailability">
+        <arguments>
+            <argument name="datasetCodes" xsi:type="array">
+                <item name="catalog_salable" xsi:type="string">catalog_salable</item>
+            </argument>
+            <argument name="requiredModules" xsi:type="array">
+                <item name="Magento_InventoryApi" xsi:type="string">Magento_InventoryApi</item>
+                <item name="Magento_InventoryIndexer" xsi:type="string">Magento_InventoryIndexer</item>
+                <item name="Magento_InventoryReservations" xsi:type="string">Magento_InventoryReservations</item>
+                <item name="Magento_InventoryCatalog" xsi:type="string">Magento_InventoryCatalog</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider">
+        <arguments>
+            <argument name="excludedProductTypes" xsi:type="array">
+                <item name="configurable" xsi:type="string">configurable</item>
+                <item name="bundle" xsi:type="string">bundle</item>
+                <item name="grouped" xsi:type="string">grouped</item>
+            </argument>
         </arguments>
     </type>
     <type name="MageOS\AdvancedReport\Model\Query\ResultCache">
@@ -51,6 +76,7 @@
     <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver">
         <arguments>
             <argument name="providers" xsi:type="array">
+                <item name="units_net_of_canceled" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\OrderUnitsNetOfCanceledExpression</item>
                 <item name="first_order" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstOrderExpression</item>
                 <item name="shipment_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression</item>
                 <item name="credit_memo_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CreditMemoCountExpression</item>
@@ -154,6 +180,7 @@
                 <item name="MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\WeekdayLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\HourOfDayLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\HourOfDayLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\StockLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\StockLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\CustomerLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CustomerLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\MonthLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\MonthLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\GenderLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\GenderLabelResolver</item>
@@ -164,6 +191,7 @@
         <arguments>
             <argument name="baseSelectProviders" xsi:type="array">
                 <item name="MageOS\AdvancedReport\Model\Stock\StockSelectProvider" xsi:type="object">MageOS\AdvancedReport\Model\Stock\StockSelectProvider</item>
+                <item name="MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider" xsi:type="object">MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider</item>
             </argument>
         </arguments>
     </type>

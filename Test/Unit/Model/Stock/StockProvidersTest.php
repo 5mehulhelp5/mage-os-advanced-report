@@ -46,6 +46,18 @@ final class StockProvidersTest extends TestCase
         $this->assertStringContainsString('ON e.sku = si.sku', $sql);
     }
 
+    public function testItExcludesSourceItemsOfDisabledSources(): void
+    {
+        $sql = $this->normalizeSql(
+            (new MsiStockProvider())->getSelect($this->createSqlAdapter(), $this->dataset())
+        );
+
+        $this->assertStringContainsString(
+            'INNER JOIN `inventory_source` AS `src` ON src.source_code = si.source_code AND src.enabled = 1',
+            $sql
+        );
+    }
+
     public function testItReadsCostAndPriceAtStoreZeroJoinedOnEntityId(): void
     {
         $sql = $this->normalizeSql(

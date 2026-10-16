@@ -41,10 +41,11 @@ final class OrderStatusesTest extends TestCase
     private function statusItem(string $status, string $label): Status
     {
         $item = $this->createStub(Status::class);
-        $item->method('getData')->willReturnMap([
-            ['status', $status],
-            ['label', $label],
-        ]);
+        // A callback, not willReturnMap: PHPUnit 10 (bundled with Magento 2.4.8) also matches
+        // getData()'s default $index argument, so a one-argument map never matches there.
+        $item->method('getData')->willReturnCallback(
+            static fn (string $key): ?string => ['status' => $status, 'label' => $label][$key] ?? null
+        );
 
         return $item;
     }

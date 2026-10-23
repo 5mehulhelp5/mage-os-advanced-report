@@ -97,8 +97,8 @@ use PHPUnit\Framework\TestCase;
 ]
 final class FiltersTest extends TestCase
 {
-    private const FROM = '2026-06-01';
-    private const TO = '2026-06-30';
+    private const string FROM = '2026-06-01';
+    private const string TO = '2026-06-30';
 
     /** @var array{website_id:int, store_id:int} */
     private static array $secondWebsiteStore;

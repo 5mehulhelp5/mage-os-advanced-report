@@ -20,6 +20,7 @@ use Magento\TestFramework\Fixture\AppIsolation;
 use Magento\TestFramework\Fixture\Config;
 use Magento\TestFramework\Fixture\DataFixture;
 use Magento\TestFramework\Fixture\DbIsolation;
+use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Test\Integration\Fixture\SetOrderCreatedAt;
 use MageOS\AdvancedReport\Test\Integration\Helper\ReportTestRunner;
 use PHPUnit\Framework\TestCase;
@@ -216,7 +217,7 @@ final class RefundsTest extends TestCase
         $this->assertEqualsWithDelta(0.0, (float) $this->runner->totals($other)['returns'], 0.0001);
     }
 
-    private function orders(string $metric): \MageOS\AdvancedReport\Api\Data\ReportResultInterface
+    private function orders(string $metric): ReportResultInterface
     {
         return $this->runner->run('sales_orders', [$metric], [], [], self::FROM, self::TO);
     }
@@ -253,7 +254,7 @@ final class RefundsTest extends TestCase
     /**
      * @return array<string,array<string,mixed>>
      */
-    private function bySku(\MageOS\AdvancedReport\Api\Data\ReportResultInterface $result): array
+    private function bySku(ReportResultInterface $result): array
     {
         $map = [];
         foreach ($this->runner->rows($result) as $row) {

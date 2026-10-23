@@ -114,8 +114,8 @@ use PHPUnit\Framework\TestCase;
 ]
 final class MonetaryComponentsTest extends TestCase
 {
-    private const FROM = '2026-03-01';
-    private const TO = '2026-03-31';
+    private const string FROM = '2026-03-01';
+    private const string TO = '2026-03-31';
 
     private ReportTestRunner $runner;
 

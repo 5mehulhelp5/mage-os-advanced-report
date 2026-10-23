@@ -114,22 +114,21 @@ class DatasetAccess
      */
     private function getDeclaredIds(): array
     {
-        if ($this->declaredIds === null) {
-            $this->declaredIds = [];
-            $this->collect($this->aclResourceProvider->getAclResources());
-        }
-
-        return $this->declaredIds;
+        return $this->declaredIds ??= $this->collect($this->aclResourceProvider->getAclResources());
     }
 
     /**
      * @param array<int,array<string,mixed>> $nodes
+     * @param array<string,true> $ids
+     * @return array<string,true>
      */
-    private function collect(array $nodes): void
+    private function collect(array $nodes, array $ids = []): array
     {
         foreach ($nodes as $node) {
-            $this->declaredIds[(string) $node['id']] = true;
-            $this->collect($node['children'] ?? []);
+            $ids[(string) $node['id']] = true;
+            $ids = $this->collect($node['children'] ?? [], $ids);
         }
+
+        return $ids;
     }
 }

@@ -136,8 +136,8 @@ use PHPUnit\Framework\TestCase;
 ]
 final class ProductTypesTest extends TestCase
 {
-    private const FROM = '2026-07-01';
-    private const TO = '2026-07-31';
+    private const string FROM = '2026-07-01';
+    private const string TO = '2026-07-31';
 
     private ReportTestRunner $runner;
 

@@ -11,9 +11,9 @@ use Magento\TestFramework\Fixture\DataFixtureInterface;
 /**
  * Cancels an order (core has no cancel fixture). Data: `order_id`.
  */
-final class CancelOrder implements DataFixtureInterface
+final readonly class CancelOrder implements DataFixtureInterface
 {
-    public function __construct(private readonly OrderManagementInterface $orderManagement)
+    public function __construct(private OrderManagementInterface $orderManagement)
     {
     }
 

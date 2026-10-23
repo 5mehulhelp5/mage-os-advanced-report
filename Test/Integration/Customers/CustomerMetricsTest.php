@@ -156,7 +156,7 @@ use PHPUnit\Framework\TestCase;
 ]
 final class CustomerMetricsTest extends TestCase
 {
-    private const NEW_RETURNING = ['orders', 'new_customer_orders', 'returning_customer_orders'];
+    private const array NEW_RETURNING = ['orders', 'new_customer_orders', 'returning_customer_orders'];
 
     private static int $extraStoreId;
 

@@ -11,9 +11,9 @@ use Magento\TestFramework\Fixture\DataFixtureInterface;
 /**
  * Forces `sales_order.created_at` through direct SQL. Data: `order_id`, `created_at` (UTC).
  */
-final class SetOrderCreatedAt implements DataFixtureInterface
+final readonly class SetOrderCreatedAt implements DataFixtureInterface
 {
-    public function __construct(private readonly ResourceConnection $resourceConnection)
+    public function __construct(private ResourceConnection $resourceConnection)
     {
     }
 

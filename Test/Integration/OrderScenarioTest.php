@@ -23,6 +23,7 @@ use Magento\TestFramework\Fixture\AppIsolation;
 use Magento\TestFramework\Fixture\Config;
 use Magento\TestFramework\Fixture\DataFixture;
 use Magento\TestFramework\Fixture\DbIsolation;
+use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Test\Integration\Fixture\CancelOrder;
 use MageOS\AdvancedReport\Test\Integration\Fixture\SetOrderCreatedAt;
 use MageOS\AdvancedReport\Test\Integration\Helper\ReportTestRunner;
@@ -194,7 +195,7 @@ final class OrderScenarioTest extends TestCase
     /**
      * @return array<int|string,int|float>
      */
-    private function ordersBy(\MageOS\AdvancedReport\Api\Data\ReportResultInterface $result, string $dimension): array
+    private function ordersBy(ReportResultInterface $result, string $dimension): array
     {
         $map = [];
         foreach ($this->runner->rows($result) as $row) {

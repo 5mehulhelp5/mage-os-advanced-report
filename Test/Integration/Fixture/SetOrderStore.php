@@ -17,9 +17,9 @@ use Magento\TestFramework\Fixture\DataFixtureInterface;
  * `Bootstrap::getObjectManager()->get(SetOrderStore::class)->apply([...])` inside the test method.
  * Shared with task 009.
  */
-final class SetOrderStore implements DataFixtureInterface
+final readonly class SetOrderStore implements DataFixtureInterface
 {
-    public function __construct(private readonly ResourceConnection $resourceConnection)
+    public function __construct(private ResourceConnection $resourceConnection)
     {
     }
 

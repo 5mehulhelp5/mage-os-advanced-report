@@ -75,9 +75,10 @@ final class ErrorLoggerTest extends TestCase
      */
     private function logProduction(\Throwable $e): array
     {
-        $captured = [];
+        $captured = ['message' => '', 'context' => []];
         $logger = $this->createStub(LoggerInterface::class);
         $logger->method('error')->willReturnCallback(
+            /** @param array<string,mixed> $context */
             function (string $message, array $context) use (&$captured): void {
                 $captured = ['message' => $message, 'context' => $context];
             }

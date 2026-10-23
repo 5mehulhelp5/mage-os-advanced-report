@@ -26,10 +26,10 @@ use Magento\TestFramework\Helper\Bootstrap;
  */
 final class StoreProvisioner
 {
-    public const STORE_VIEW_CODE = 'ar_store_view_2';
-    public const WEBSITE_CODE = 'ar_website_2';
-    public const GROUP_CODE = 'ar_group_2';
-    public const WEBSITE_STORE_CODE = 'ar_store_2';
+    public const string STORE_VIEW_CODE = 'ar_store_view_2';
+    public const string WEBSITE_CODE = 'ar_website_2';
+    public const string GROUP_CODE = 'ar_group_2';
+    public const string WEBSITE_STORE_CODE = 'ar_store_2';
 
     /**
      * Ensures a second store view on the default website and group; returns its id.

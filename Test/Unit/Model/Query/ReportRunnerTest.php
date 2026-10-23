@@ -41,6 +41,7 @@ use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\ResultCache;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use MageOS\AdvancedReport\Model\Query\SourceResolver;
+use MageOS\AdvancedReport\Model\Security\AclContext;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -62,6 +63,8 @@ final class ReportRunnerTest extends TestCase
     private BaseCurrencyChecker $baseCurrencyChecker;
 
     private LocaleResolverInterface $localeResolver;
+
+    private AclContext $aclContext;
 
     private Dataset $dataset;
 
@@ -94,6 +97,42 @@ final class ReportRunnerTest extends TestCase
 
         $this->localeResolver = $this->createStub(LocaleResolverInterface::class);
         $this->localeResolver->method('getLocale')->willReturn('en_US');
+
+        $this->aclContext = $this->createStub(AclContext::class);
+        $this->aclContext->method('getFingerprint')->willReturn('acl-fp');
+    }
+
+    public function testItPassesTheAclFingerprintToTheCacheKeyFromTheRunner(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => null]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->expects(self::once())->method('buildKey')->with(
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            'acl-fp',
+        )->willReturn('cache-key');
+        $resultCache->method('load')->willReturn([
+            'columns' => [], 'rows' => [], 'totals' => ['metrics' => []], 'totalRowCount' => 0,
+            'range' => null, 'comparisonRange' => null, 'currencyCode' => 'USD', 'warnings' => [],
+            'source' => 'mysql', 'generatedAt' => '2026-09-25T10:00:00+00:00', 'meta' => [],
+        ]);
+
+        $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'resultCache' => $resultCache,
+        ])->run($this->buildRequest());
     }
 
     public function testItReturnsACachedResultFlaggedAsCachedWithoutExecutingTheSource(): void
@@ -392,6 +431,7 @@ final class ReportRunnerTest extends TestCase
             $overrides['warningsCollector'] ?? $this->warningsCollector,
             $this->baseCurrencyChecker,
             $this->localeResolver,
+            $overrides['aclContext'] ?? $this->aclContext,
         );
     }
 

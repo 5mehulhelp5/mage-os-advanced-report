@@ -18,6 +18,7 @@ use MageOS\AdvancedReport\Api\Data\SavedReportSearchResultsInterfaceFactory;
 use MageOS\AdvancedReport\Api\SavedReportRepositoryInterface;
 use MageOS\AdvancedReport\Model\ResourceModel\SavedReport as SavedReportResource;
 use MageOS\AdvancedReport\Model\ResourceModel\SavedReport\CollectionFactory;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 
 class SavedReportRepository implements SavedReportRepositoryInterface
 {
@@ -27,6 +28,7 @@ class SavedReportRepository implements SavedReportRepositoryInterface
         private readonly CollectionFactory $collectionFactory,
         private readonly SavedReportSearchResultsInterfaceFactory $searchResultsFactory,
         private readonly CollectionProcessorInterface $collectionProcessor,
+        private readonly ErrorLogger $errorLogger,
     ) {
     }
 
@@ -35,7 +37,9 @@ class SavedReportRepository implements SavedReportRepositoryInterface
         try {
             $this->resource->save($this->asModel($savedReport));
         } catch (Exception $e) {
-            throw new CouldNotSaveException(__('Could not save the report: %1', $e->getMessage()), $e);
+            $this->errorLogger->log($e, 'advanced_report_saved_save');
+
+            throw new CouldNotSaveException(__('Could not save the report.'), $e);
         }
 
         return $savedReport;
@@ -72,7 +76,9 @@ class SavedReportRepository implements SavedReportRepositoryInterface
         try {
             $this->resource->delete($this->asModel($savedReport));
         } catch (Exception $e) {
-            throw new CouldNotDeleteException(__('Could not delete the report: %1', $e->getMessage()), $e);
+            $this->errorLogger->log($e, 'advanced_report_saved_delete');
+
+            throw new CouldNotDeleteException(__('Could not delete the report.'), $e);
         }
 
         return true;

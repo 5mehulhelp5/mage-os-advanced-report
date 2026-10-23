@@ -220,4 +220,16 @@
             <argument name="definitionRegistry" xsi:type="object">MageOS\AdvancedReport\Model\Definition\DefinitionRegistry\Proxy</argument>
         </arguments>
     </type>
+    <type name="MageOS\AdvancedReport\Model\Security\DatasetAccess">
+        <arguments>
+            <argument name="coreResources" xsi:type="array">
+                <item name="sales_orders" xsi:type="string">Magento_Sales::sales_order</item>
+                <item name="customer_orders" xsi:type="string">Magento_Sales::sales_order</item>
+                <item name="sales_items" xsi:type="string">Magento_Sales::sales_order</item>
+                <item name="customers" xsi:type="string">Magento_Customer::manage</item>
+                <item name="catalog_stock" xsi:type="string">Magento_Catalog::products</item>
+                <item name="catalog_salable" xsi:type="string">Magento_InventoryApi::stock</item>
+            </argument>
+        </arguments>
+    </type>
 </config>

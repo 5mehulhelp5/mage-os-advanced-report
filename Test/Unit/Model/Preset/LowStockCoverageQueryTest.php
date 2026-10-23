@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Preset;
 
-use Magento\Framework\AuthorizationInterface;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Api\DataSourceInterface;
@@ -12,18 +11,20 @@ use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\DataSourcePool;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
+use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(LowStockCoverageQuery::class)]
 final class LowStockCoverageQueryTest extends TestCase
 {
-    public function testItComputesCoverageDaysFromCurrentQtyAnd30DayAverageSales(): void
+    public function testItIncludesCoverageSalesDataWhenTheSalesDatasetIsAccessible(): void
     {
         $runner = $this->createMock(ReportRunnerInterface::class);
         $runner->expects(self::once())->method('run')->with(self::callback(
@@ -62,7 +63,7 @@ final class LowStockCoverageQueryTest extends TestCase
         self::assertSame(0.0, $result->rows[1]['metrics']['units_sold_30d']);
     }
 
-    public function testItDegradesToStockOnlyWithAWarningWhenTheAdminLacksSalesPermission(): void
+    public function testItOmitsCoverageSalesDataWhenTheSalesDatasetIsNotAccessible(): void
     {
         $runner = $this->createMock(ReportRunnerInterface::class);
         $runner->expects(self::never())->method('run');
@@ -192,12 +193,17 @@ final class LowStockCoverageQueryTest extends TestCase
         $pool = $this->createStub(DataSourcePool::class);
         $pool->method('get')->willReturn($source);
 
-        $authorization = $this->createStub(AuthorizationInterface::class);
-        $authorization->method('isAllowed')->willReturn($salesAllowed);
+        $salesDataset = new Dataset('sales_items', 'Items', 'acl', 'sales', false, null, null, null, [], [], [], [], []);
+        $registry = $this->createStub(DefinitionRegistry::class);
+        $registry->method('getDataset')->willReturn($salesDataset);
+        $datasetAccess = $this->createStub(DatasetAccess::class);
+        $datasetAccess->method('isAllowed')->willReturnCallback(
+            static fn (Dataset $dataset): bool => $dataset === $salesDataset && $salesAllowed
+        );
         $config = $this->createStub(Config::class);
         $config->method('getMaxRows')->willReturn(5000);
 
-        return new LowStockCoverageQuery($pool, $runner, new ReportRequestFactory(), $authorization, $config);
+        return new LowStockCoverageQuery($pool, $runner, new ReportRequestFactory(), $datasetAccess, $registry, $config);
     }
 
     /**

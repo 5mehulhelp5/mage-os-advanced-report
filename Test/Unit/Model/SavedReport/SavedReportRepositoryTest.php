@@ -16,6 +16,7 @@ use MageOS\AdvancedReport\Model\ResourceModel\SavedReport\CollectionFactory;
 use MageOS\AdvancedReport\Model\SavedReport\SavedReport;
 use MageOS\AdvancedReport\Model\SavedReport\SavedReportFactory;
 use MageOS\AdvancedReport\Model\SavedReport\SavedReportRepository;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -27,6 +28,7 @@ final class SavedReportRepositoryTest extends TestCase
     private SavedReportResource&MockObject $resource;
     private SavedReportFactory&MockObject $factory;
     private CollectionFactory&MockObject $collectionFactory;
+    private ErrorLogger&MockObject $errorLogger;
     private SavedReportRepository $repository;
 
     protected function setUp(): void
@@ -34,12 +36,14 @@ final class SavedReportRepositoryTest extends TestCase
         $this->resource = $this->createMock(SavedReportResource::class);
         $this->factory = $this->createMock(SavedReportFactory::class);
         $this->collectionFactory = $this->createMock(CollectionFactory::class);
+        $this->errorLogger = $this->createMock(ErrorLogger::class);
         $this->repository = new SavedReportRepository(
             $this->resource,
             $this->factory,
             $this->collectionFactory,
             $this->createStub(SavedReportSearchResultsInterfaceFactory::class),
             $this->createStub(CollectionProcessorInterface::class),
+            $this->errorLogger,
         );
     }
 
@@ -80,18 +84,39 @@ final class SavedReportRepositoryTest extends TestCase
         self::assertSame([$own, $shared], $this->repository->getVisibleForUser(7));
     }
 
-    public function testItWrapsPersistenceErrorsInCouldNotSaveExceptionAndCouldNotDeleteException(): void
+    public function testItDoesNotIncludeTheDatabaseMessageInTheCouldNotSaveException(): void
     {
-        $report = $this->createStub(SavedReport::class);
-        $this->resource->method('save')->willThrowException(new RuntimeException('boom'));
-        $this->resource->method('delete')->willThrowException(new RuntimeException('boom'));
+        $this->resource->method('save')->willThrowException(new RuntimeException('SELECT secret'));
 
         try {
-            $this->repository->save($report);
+            $this->repository->save($this->createStub(SavedReport::class));
             self::fail('Expected CouldNotSaveException');
-        } catch (CouldNotSaveException) {
-            $this->expectException(CouldNotDeleteException::class);
-            $this->repository->delete($report);
+        } catch (CouldNotSaveException $e) {
+            self::assertStringNotContainsString('secret', $e->getMessage());
+            self::assertInstanceOf(RuntimeException::class, $e->getPrevious());
         }
+    }
+
+    public function testItDoesNotIncludeTheDatabaseMessageInTheCouldNotDeleteException(): void
+    {
+        $this->resource->method('delete')->willThrowException(new RuntimeException('SELECT secret'));
+
+        try {
+            $this->repository->delete($this->createStub(SavedReport::class));
+            self::fail('Expected CouldNotDeleteException');
+        } catch (CouldNotDeleteException $e) {
+            self::assertStringNotContainsString('secret', $e->getMessage());
+            self::assertInstanceOf(RuntimeException::class, $e->getPrevious());
+        }
+    }
+
+    public function testItLogsTheCauseWhenASavedReportCannotBeSaved(): void
+    {
+        $cause = new RuntimeException('boom');
+        $this->resource->method('save')->willThrowException($cause);
+        $this->errorLogger->expects(self::once())->method('log')->with($cause, 'advanced_report_saved_save');
+
+        $this->expectException(CouldNotSaveException::class);
+        $this->repository->save($this->createStub(SavedReport::class));
     }
 }

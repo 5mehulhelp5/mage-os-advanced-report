@@ -6,7 +6,6 @@ namespace MageOS\AdvancedReport\Test\Unit\ViewModel;
 
 use Magento\Backend\Model\Auth\Session;
 use Magento\Backend\Model\UrlInterface;
-use Magento\Framework\AuthorizationInterface;
 use Magento\User\Model\User;
 use MageOS\AdvancedReport\Api\Data\SavedReportInterface;
 use MageOS\AdvancedReport\Api\SavedReportRepositoryInterface;
@@ -14,6 +13,7 @@ use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Definition\Preset;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use MageOS\AdvancedReport\ViewModel\ReportList;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -67,6 +67,35 @@ final class ReportListTest extends TestCase
         self::assertSame(['sales'], array_keys($areas));
         self::assertSame(['Mine', 'Shared'], array_column($areas['sales']['saved'], 'label'));
         self::assertSame([false, true], array_column($areas['sales']['saved'], 'shared'));
+    }
+
+    public function testItHidesPresetsOfADatasetWhoseCoreResourceIsDenied(): void
+    {
+        $areas = $this->build(
+            [$this->preset('orders', 'sales', 'sales_orders'), $this->preset('perf', 'catalog', 'sales_items')],
+            [],
+            ['MageOS_AdvancedReport::sales', 'MageOS_AdvancedReport::catalog'],
+            ['sales_orders'],
+        )->getAreas();
+
+        self::assertSame(['catalog'], array_keys($areas));
+    }
+
+    public function testItHidesOwnAndSharedSavedReportsOfADatasetWhoseCoreResourceIsDenied(): void
+    {
+        $areas = $this->build(
+            [],
+            [
+                $this->saved(1, 'Mine', 'sales_orders', false),
+                $this->saved(2, 'Shared', 'sales_orders', true),
+                $this->saved(3, 'Items', 'sales_items', true),
+            ],
+            ['MageOS_AdvancedReport::sales'],
+            ['sales_orders'],
+        )->getAreas();
+
+        self::assertSame(['Items'], array_column($areas['catalog']['saved'], 'label'));
+        self::assertArrayNotHasKey('sales', $areas);
     }
 
     public function testItBuildsViewUrlsForPresetsAndSavedReports(): void
@@ -157,8 +186,9 @@ final class ReportListTest extends TestCase
      * @param Preset[] $presets
      * @param SavedReportInterface[] $saved
      * @param string[] $allowed
+     * @param string[] $denied dataset codes whose core resource is denied
      */
-    private function build(array $presets, array $saved, array $allowed): ReportList
+    private function build(array $presets, array $saved, array $allowed, array $denied = []): ReportList
     {
         $datasets = [
             'sales_orders' => 'MageOS_AdvancedReport::sales',
@@ -177,9 +207,10 @@ final class ReportListTest extends TestCase
         );
         $repository = $this->createStub(SavedReportRepositoryInterface::class);
         $repository->method('getVisibleForUser')->willReturn($saved);
-        $authorization = $this->createStub(AuthorizationInterface::class);
-        $authorization->method('isAllowed')->willReturnCallback(
-            static fn (string $resource): bool => \in_array($resource, $allowed, true)
+        $datasetAccess = $this->createStub(DatasetAccess::class);
+        $datasetAccess->method('isAllowed')->willReturnCallback(
+            static fn (Dataset $dataset): bool => \in_array($dataset->aclResource, $allowed, true)
+                && !\in_array($dataset->code, $denied, true)
         );
         $user = $this->createStub(User::class);
         $user->method('getId')->willReturn('5');
@@ -204,7 +235,7 @@ final class ReportListTest extends TestCase
             static fn (string $path, array $params): string => $path . '?' . http_build_query($params)
         );
 
-        return new ReportList($registry, $repository, $authorization, $session, $url);
+        return new ReportList($registry, $repository, $datasetAccess, $session, $url);
     }
 
     private function preset(string $code, string $area, string $dataset, string $description = ''): Preset

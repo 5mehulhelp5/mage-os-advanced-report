@@ -23,6 +23,7 @@ use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Definition\Preset;
 use MageOS\AdvancedReport\Model\Exploration\InitialStateResolver;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use MageOS\AdvancedReport\ViewModel\Exploration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -39,6 +40,19 @@ final class ExplorationTest extends TestCase
         self::assertSame(['net_sales'], array_column($dataset['metrics'], 'code'));
         self::assertSame(['day'], $dataset['dimensions'][0]['granularities']);
         self::assertSame(['eq', 'neq', 'in', 'nin'], $dataset['filters'][0]['operators']);
+    }
+
+    public function testItOmitsADatasetWhoseCoreResourceIsDeniedFromTheExplorationMetadata(): void
+    {
+        $config = json_decode(
+            $this->viewModel(
+                ['MageOS_AdvancedReport::sales', 'MageOS_AdvancedReport::catalog'],
+                deniedDatasets: ['sales_orders'],
+            )->getJsConfig(),
+            true,
+        );
+
+        self::assertSame(['catalog_stock'], array_column($config['datasets'], 'code'));
     }
 
     public function testItExposesPermissionsAndEndpointUrls(): void
@@ -197,6 +211,7 @@ final class ExplorationTest extends TestCase
      * @param string[] $allowed
      * @param array<string,mixed> $request
      * @param array<string,mixed>|null $saved
+     * @param string[] $deniedDatasets dataset codes whose core resource is denied
      */
     private function viewModel(
         array $allowed,
@@ -205,6 +220,7 @@ final class ExplorationTest extends TestCase
         ?array $saved = null,
         bool $unknownPreset = false,
         ?InitialStateResolver $resolver = null,
+        array $deniedDatasets = [],
     ): Exploration {
         $orders = new Dataset(
             'sales_orders',
@@ -256,6 +272,11 @@ final class ExplorationTest extends TestCase
         $authorization->method('isAllowed')->willReturnCallback(
             static fn (string $resource): bool => \in_array($resource, $allowed, true)
         );
+        $datasetAccess = $this->createStub(DatasetAccess::class);
+        $datasetAccess->method('isAllowed')->willReturnCallback(
+            static fn (Dataset $dataset): bool => \in_array($dataset->aclResource, $allowed, true)
+                && !\in_array($dataset->code, $deniedDatasets, true)
+        );
         $url = $this->createStub(UrlInterface::class);
         $url->method('getUrl')->willReturnCallback(
             static fn (string $path, ?array $params = null): string => $path
@@ -276,6 +297,7 @@ final class ExplorationTest extends TestCase
             $this->createStub(RequestInterface::class),
             $appConfig,
             $localeResolver,
+            $datasetAccess,
         );
     }
 }

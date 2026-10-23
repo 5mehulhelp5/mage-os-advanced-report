@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Integration\Helper;
 
 use Magento\Backend\Model\Auth;
+use Magento\Framework\Acl\Builder as AclBuilder;
 use Magento\TestFramework\Bootstrap as TestBootstrap;
 use Magento\TestFramework\Helper\Bootstrap;
 use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
@@ -20,12 +21,12 @@ use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
  * in `tearDown()`, then `run()` / `runPreset()` and read the outcome with `rows()` (keyed on
  * raw dimension values merged with metrics) and `totals()`.
  */
-final class ReportTestRunner
+final readonly class ReportTestRunner
 {
-    private readonly ReportRunnerInterface $runner;
-    private readonly ReportRequestFactory $requestFactory;
-    private readonly PresetRequestBuilder $presetRequestBuilder;
-    private readonly DefinitionRegistry $registry;
+    private ReportRunnerInterface $runner;
+    private ReportRequestFactory $requestFactory;
+    private PresetRequestBuilder $presetRequestBuilder;
+    private DefinitionRegistry $registry;
 
     public function __construct()
     {
@@ -41,10 +42,18 @@ final class ReportTestRunner
      */
     public function login(): void
     {
-        Bootstrap::getObjectManager()->get(Auth::class)->login(
-            TestBootstrap::ADMIN_NAME,
-            TestBootstrap::ADMIN_PASSWORD
-        );
+        $this->loginAs(TestBootstrap::ADMIN_NAME);
+    }
+
+    /**
+     * Logs in a restricted admin and resets the runtime ACL: the ACL object is built once per process and
+     * does not know roles created by fixtures afterwards. Call inside the test method, not in `setUp()`.
+     */
+    public function loginAs(string $username): void
+    {
+        $objectManager = Bootstrap::getObjectManager();
+        $objectManager->get(Auth::class)->login($username, TestBootstrap::ADMIN_PASSWORD);
+        $objectManager->get(AclBuilder::class)->resetRuntimeAcl();
     }
 
     public function logout(): void
@@ -76,6 +85,34 @@ final class ReportTestRunner
             'storeIds' => $storeIds,
             'bypassCache' => true,
         ]));
+    }
+
+    /**
+     * Runs a custom-range request with sort, cache and extra raw request keys (e.g. `offset`, `preset`).
+     *
+     * @param string[] $metrics
+     * @param list<array{code: string, granularity: ?string}> $dimensions
+     * @param list<array{by: string, direction: string}> $sort
+     * @param array<string,mixed> $extra
+     */
+    public function runWith(
+        string $dataset,
+        array $metrics,
+        array $dimensions = [],
+        array $sort = [],
+        bool $bypassCache = true,
+        array $extra = []
+    ): ReportResultInterface {
+        return $this->runner->run($this->requestFactory->fromArray(array_merge([
+            'dataset' => $dataset,
+            'metrics' => $metrics,
+            'dimensions' => $dimensions,
+            'filters' => [],
+            'sort' => $sort,
+            'dateRange' => ['type' => 'custom', 'from' => '2026-01-01', 'to' => '2026-01-31'],
+            'storeIds' => [],
+            'bypassCache' => $bypassCache,
+        ], $extra)));
     }
 
     public function runPreset(string $presetCode, string $from, string $to): ReportResultInterface

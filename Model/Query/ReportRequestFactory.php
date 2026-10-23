@@ -29,48 +29,197 @@ class ReportRequestFactory
      */
     public function fromArray(array $data): ReportRequestInterface
     {
-        $dimensions = array_map(
-            fn (array $dimension): DimensionSelection => new DimensionSelection(
-                code: $dimension['code'],
-                granularity: $dimension['granularity'] !== null
-                    ? Granularity::from($dimension['granularity'])
-                    : null,
-            ),
-            $data['dimensions'] ?? [],
-        );
-
-        $filters = array_map(
-            fn (array $filter): FilterCondition => new FilterCondition(
-                field: $filter['field'],
-                operator: FilterOperator::from($filter['operator']),
-                value: $filter['value'],
-            ),
-            $data['filters'] ?? [],
-        );
-
-        $sort = array_map(
-            fn (array $sort): SortOrder => new SortOrder(
-                by: $sort['by'],
-                direction: $sort['direction'] ?? self::DEFAULT_SORT_DIRECTION,
-            ),
-            $data['sort'] ?? [],
-        );
-
         return new ReportRequest(
             dataset: $this->requireDataset($data),
-            preset: $data['preset'] ?? null,
+            preset: $this->optionalString($data, 'preset'),
             metrics: $this->requireMetrics($data),
-            dimensions: $dimensions,
-            filters: $filters,
+            dimensions: $this->parseDimensions($data['dimensions'] ?? []),
+            filters: $this->parseFilters($data['filters'] ?? []),
             dateRange: $this->resolveDateRange($data['dateRange'] ?? []),
             compareTo: $this->resolveCompareMode($data['compareTo'] ?? self::DEFAULT_COMPARE_TO),
-            sort: $sort,
-            limit: $data['limit'] ?? null,
-            offset: $data['offset'] ?? 0,
-            storeIds: $data['storeIds'] ?? [],
-            source: $data['source'] ?? null,
-            bypassCache: $data['bypassCache'] ?? false,
+            sort: $this->parseSort($data['sort'] ?? []),
+            limit: $this->optionalInt($data, 'limit'),
+            offset: $this->requireInt($data, 'offset', 0),
+            storeIds: $this->parseStoreIds($data['storeIds'] ?? []),
+            source: $this->optionalString($data, 'source'),
+            bypassCache: $this->requireBool($data, 'bypassCache'),
         );
+    }
+
+    /**
+     * @return DimensionSelection[]
+     * @throws InvalidRequestException
+     */
+    private function parseDimensions(mixed $dimensions): array
+    {
+        $result = [];
+        foreach ($this->requireListOfArrays($dimensions, 'dimensions') as $dimension) {
+            $granularity = $dimension['granularity'] ?? null;
+            if ($granularity !== null && (!\is_string($granularity) || Granularity::tryFrom($granularity) === null)) {
+                throw new InvalidRequestException(new Phrase('Unknown dimension granularity.'));
+            }
+            $result[] = new DimensionSelection(
+                code: $this->requireNonEmptyString($dimension, 'code', 'dimensions'),
+                granularity: $granularity !== null ? Granularity::from($granularity) : null,
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return FilterCondition[]
+     * @throws InvalidRequestException
+     */
+    private function parseFilters(mixed $filters): array
+    {
+        $result = [];
+        foreach ($this->requireListOfArrays($filters, 'filters') as $filter) {
+            $operator = $filter['operator'] ?? null;
+            if (!\is_string($operator) || FilterOperator::tryFrom($operator) === null) {
+                throw new InvalidRequestException(new Phrase('Unknown filter operator.'));
+            }
+            $result[] = new FilterCondition(
+                field: $this->requireNonEmptyString($filter, 'field', 'filters'),
+                operator: FilterOperator::from($operator),
+                value: $filter['value'] ?? null,
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return SortOrder[]
+     * @throws InvalidRequestException
+     */
+    private function parseSort(mixed $sort): array
+    {
+        $result = [];
+        foreach ($this->requireListOfArrays($sort, 'sort') as $entry) {
+            $direction = $entry['direction'] ?? self::DEFAULT_SORT_DIRECTION;
+            if (!\is_string($direction)) {
+                throw new InvalidRequestException(new Phrase('The sort direction must be a string.'));
+            }
+            $result[] = new SortOrder(
+                by: $this->requireNonEmptyString($entry, 'by', 'sort'),
+                direction: $direction,
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return int[]
+     * @throws InvalidRequestException
+     */
+    private function parseStoreIds(mixed $storeIds): array
+    {
+        if (!\is_array($storeIds) || !array_is_list($storeIds)) {
+            throw new InvalidRequestException(new Phrase('The store ids must be a list of integers.'));
+        }
+        foreach ($storeIds as $storeId) {
+            if (!\is_int($storeId)) {
+                throw new InvalidRequestException(new Phrase('The store ids must be a list of integers.'));
+            }
+        }
+
+        return $storeIds;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     * @throws InvalidRequestException
+     */
+    private function requireListOfArrays(mixed $value, string $key): array
+    {
+        if (!\is_array($value) || !array_is_list($value)) {
+            throw new InvalidRequestException(new Phrase('The "%1" entry must be a list.', [$key]));
+        }
+        foreach ($value as $entry) {
+            if (!\is_array($entry)) {
+                throw new InvalidRequestException(
+                    new Phrase('Every "%1" entry must be an object.', [$key])
+                );
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string,mixed> $entry
+     * @throws InvalidRequestException
+     */
+    private function requireNonEmptyString(array $entry, string $key, string $group): string
+    {
+        $value = $entry[$key] ?? null;
+        if (!\is_string($value) || $value === '') {
+            throw new InvalidRequestException(
+                new Phrase('Every "%1" entry requires a non-empty "%2".', [$group, $key])
+            );
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @throws InvalidRequestException
+     */
+    private function optionalString(array $data, string $key): ?string
+    {
+        $value = $data[$key] ?? null;
+        if ($value !== null && !\is_string($value)) {
+            throw new InvalidRequestException(new Phrase('The "%1" value must be a string.', [$key]));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @throws InvalidRequestException
+     */
+    private function optionalInt(array $data, string $key): ?int
+    {
+        $value = $data[$key] ?? null;
+        if ($value !== null && !\is_int($value)) {
+            throw new InvalidRequestException(new Phrase('The "%1" value must be an integer.', [$key]));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @throws InvalidRequestException
+     */
+    private function requireInt(array $data, string $key, int $default): int
+    {
+        if (!\array_key_exists($key, $data)) {
+            return $default;
+        }
+        if (!\is_int($data[$key])) {
+            throw new InvalidRequestException(new Phrase('The "%1" value must be an integer.', [$key]));
+        }
+
+        return $data[$key];
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     * @throws InvalidRequestException
+     */
+    private function requireBool(array $data, string $key): bool
+    {
+        $value = $data[$key] ?? false;
+        if (!\is_bool($value)) {
+            throw new InvalidRequestException(new Phrase('The "%1" value must be a boolean.', [$key]));
+        }
+
+        return $value;
     }
 
     /**

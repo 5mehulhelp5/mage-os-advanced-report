@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Exploration;
 
-use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Api\SavedReportRepositoryInterface;
@@ -13,6 +12,7 @@ use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Query\PresetRequestBuilder;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 
 /**
  * Resolves what the exploration page opens with: a preset, a saved report visible to the
@@ -25,14 +25,14 @@ class InitialStateResolver
      * @param SavedReportRepositoryInterface $savedReportRepository
      * @param PresetRequestBuilder $presetRequestBuilder
      * @param ReportRequestFactory $requestFactory
-     * @param AuthorizationInterface $authorization
+     * @param DatasetAccess $datasetAccess
      */
     public function __construct(
         private readonly DefinitionRegistry $registry,
         private readonly SavedReportRepositoryInterface $savedReportRepository,
         private readonly PresetRequestBuilder $presetRequestBuilder,
         private readonly ReportRequestFactory $requestFactory,
-        private readonly AuthorizationInterface $authorization,
+        private readonly DatasetAccess $datasetAccess,
     ) {
     }
 
@@ -107,7 +107,7 @@ class InitialStateResolver
     private function emptyRequest(): array
     {
         foreach ($this->registry->getDatasets() as $dataset) {
-            if ($this->authorization->isAllowed($dataset->aclResource)) {
+            if ($this->datasetAccess->isAllowed($dataset)) {
                 return [
                     'dataset' => $dataset->code,
                     'preset' => null,
@@ -130,7 +130,7 @@ class InitialStateResolver
     private function assertDatasetAllowed(string $datasetCode): void
     {
         try {
-            $allowed = $this->authorization->isAllowed($this->registry->getDataset($datasetCode)->aclResource);
+            $allowed = $this->datasetAccess->isAllowed($this->registry->getDataset($datasetCode));
         } catch (NoSuchDefinitionException) {
             $allowed = false;
         }

@@ -48,6 +48,7 @@ class ResultCache
      * @param array<string,mixed> $resolvedDateRanges Concrete `from`/`to`
      *                                                dates for the main range and, when applicable, the comparison range.
      * @param string $locale Admin interface locale.
+     * @param string $aclContext Fingerprint of the admin's allowed ACL resources.
      */
     public function buildKey(
         ReportRequestInterface $request,
@@ -56,6 +57,7 @@ class ResultCache
         array $countedStatuses,
         array $resolvedDateRanges,
         string $locale,
+        string $aclContext = '',
     ): string {
         $normalizedRequest = $this->requestFactory->toArray($request);
         unset($normalizedRequest['bypassCache'], $normalizedRequest['source'], $normalizedRequest['storeIds']);
@@ -68,6 +70,7 @@ class ResultCache
             'countedStatuses' => $this->sortedList($countedStatuses),
             'resolvedDateRanges' => $resolvedDateRanges,
             'locale' => $locale,
+            'aclContext' => $aclContext,
         ]);
 
         return hash('sha256', (string) $this->serializer->serialize($payload));

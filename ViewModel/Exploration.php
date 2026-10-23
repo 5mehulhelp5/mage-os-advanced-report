@@ -21,6 +21,7 @@ use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Exploration\InitialStateResolver;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 
 /**
  * Bootstrap configuration of the exploration page JS app.
@@ -56,6 +57,7 @@ class Exploration implements ArgumentInterface
      * @param RequestInterface $request
      * @param Config $config
      * @param LocaleResolverInterface $localeResolver
+     * @param DatasetAccess $datasetAccess
      */
     public function __construct(
         private readonly DefinitionRegistry $registry,
@@ -66,6 +68,7 @@ class Exploration implements ArgumentInterface
         private readonly RequestInterface $request,
         private readonly Config $config,
         private readonly LocaleResolverInterface $localeResolver,
+        private readonly DatasetAccess $datasetAccess,
     ) {
     }
 
@@ -160,7 +163,7 @@ class Exploration implements ArgumentInterface
     {
         $datasets = [];
         foreach ($this->registry->getDatasets() as $dataset) {
-            if (!$this->authorization->isAllowed($dataset->aclResource)) {
+            if (!$this->datasetAccess->isAllowed($dataset)) {
                 continue;
             }
             $datasets[] = [

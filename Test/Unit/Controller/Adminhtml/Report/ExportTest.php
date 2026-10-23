@@ -18,10 +18,10 @@ use MageOS\AdvancedReport\Controller\Adminhtml\Report\Export;
 use MageOS\AdvancedReport\Model\Export\CsvExporter;
 use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\LoggerInterface;
 
 #[CoversClass(Export::class)]
 final class ExportTest extends TestCase
@@ -98,7 +98,7 @@ final class ExportTest extends TestCase
             $exporter ?? $this->createStub(CsvExporter::class),
             $this->guard,
             $dateTime ?? $this->createStub(DateTime::class),
-            $this->createStub(LoggerInterface::class),
+            $this->createStub(ErrorLogger::class),
         );
     }
 }

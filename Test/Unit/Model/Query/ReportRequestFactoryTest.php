@@ -192,6 +192,116 @@ final class ReportRequestFactoryTest extends TestCase
     }
 
     /**
+     * @return array<string,array{0:array<string,mixed>}>
+     */
+    public static function invalidGranularityOrOperatorProvider(): array
+    {
+        return [
+            'unknown granularity' => [['dimensions' => [['code' => 'order_date', 'granularity' => 'decade']]]],
+            'non string granularity' => [['dimensions' => [['code' => 'order_date', 'granularity' => 5]]]],
+            'unknown operator' => [['filters' => [['field' => 'status', 'operator' => 'like', 'value' => 'x']]]],
+            'non string operator' => [['filters' => [['field' => 'status', 'operator' => ['eq'], 'value' => 'x']]]],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $override
+     */
+    #[DataProvider('invalidGranularityOrOperatorProvider')]
+    public function testItRejectsAnUnknownGranularityOrFilterOperatorWithAnInvalidRequestError(array $override): void
+    {
+        $this->expectException(InvalidRequestException::class);
+
+        $this->factory->fromArray($override + $this->completePayload());
+    }
+
+    /**
+     * @return array<string,array{0:array<string,mixed>}>
+     */
+    public static function malformedListEntryProvider(): array
+    {
+        return [
+            'dimensions not a list' => [['dimensions' => 'order_date']],
+            'dimension entry not an array' => [['dimensions' => ['order_date']]],
+            'dimension without code' => [['dimensions' => [['granularity' => null]]]],
+            'dimension empty code' => [['dimensions' => [['code' => '']]]],
+            'dimension non string code' => [['dimensions' => [['code' => 4]]]],
+            'filters not a list' => [['filters' => 'x']],
+            'filter entry not an array' => [['filters' => ['x']]],
+            'filter without field' => [['filters' => [['operator' => 'eq', 'value' => 1]]]],
+            'filter non string field' => [['filters' => [['field' => ['a'], 'operator' => 'eq', 'value' => 1]]]],
+            'filter without operator' => [['filters' => [['field' => 'status', 'value' => 1]]]],
+            'sort not a list' => [['sort' => 'orders']],
+            'sort entry not an array' => [['sort' => ['orders']]],
+            'sort without by' => [['sort' => [['direction' => 'asc']]]],
+            'sort empty by' => [['sort' => [['by' => '']]]],
+            'sort non string direction' => [['sort' => [['by' => 'orders', 'direction' => 1]]]],
+            'preset not a string' => [['preset' => 5]],
+            'source not a string' => [['source' => ['mysql']]],
+            'bypassCache not a bool' => [['bypassCache' => 'yes']],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $override
+     */
+    #[DataProvider('malformedListEntryProvider')]
+    public function testItRejectsNonArrayDimensionFilterOrSortEntriesAndMissingKeysWithAnInvalidRequestError(
+        array $override
+    ): void {
+        $this->expectException(InvalidRequestException::class);
+
+        $this->factory->fromArray($override + $this->completePayload());
+    }
+
+    /**
+     * @return array<string,array{0:array<string,mixed>}>
+     */
+    public static function nonIntegerLimitOrOffsetProvider(): array
+    {
+        return [
+            'string limit' => [['limit' => '10']],
+            'float limit' => [['limit' => 1.5]],
+            'array limit' => [['limit' => [1]]],
+            'string offset' => [['offset' => '5']],
+            'null offset' => [['offset' => null]],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $override
+     */
+    #[DataProvider('nonIntegerLimitOrOffsetProvider')]
+    public function testItRejectsNonIntegerLimitAndOffsetInTheRequestPayload(array $override): void
+    {
+        $this->expectException(InvalidRequestException::class);
+
+        $this->factory->fromArray($override + $this->completePayload());
+    }
+
+    /**
+     * @return array<string,array{0:mixed}>
+     */
+    public static function nonIntegerStoreIdsProvider(): array
+    {
+        return [
+            'not a list' => ['1'],
+            'string entry' => [['1']],
+            'array entry' => [[[1]]],
+            'null entry' => [[null]],
+            'associative' => [['a' => 1]],
+        ];
+    }
+
+    #[DataProvider('nonIntegerStoreIdsProvider')]
+    public function testItRejectsNonIntegerStoreIdsInTheRequestPayload(mixed $storeIds): void
+    {
+        $this->expectException(InvalidRequestException::class);
+
+        $this->factory->fromArray(['storeIds' => $storeIds] + $this->completePayload());
+    }
+
+    /**
      * @return array<string,mixed>
      */
     private function completePayload(): array

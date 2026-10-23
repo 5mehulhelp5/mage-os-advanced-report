@@ -107,6 +107,23 @@ final class ResultCacheTest extends TestCase
         self::assertNotSame($baseline, $differentConfigVersion);
     }
 
+    public function testItBuildsDifferentCacheKeysForDifferentAclContexts(): void
+    {
+        $request = $this->buildRequest();
+        $build = fn (string $acl): string => $this->resultCache->buildKey(
+            $request,
+            'mysql',
+            'config-v1',
+            ['complete'],
+            ['main' => ['from' => '2026-09-01', 'to' => '2026-09-26']],
+            'en_US',
+            $acl,
+        );
+
+        self::assertNotSame($build('acl-a'), $build('acl-b'));
+        self::assertSame($build('acl-a'), $build('acl-a'));
+    }
+
     public function testItBuildsDifferentKeysForTheSameRelativeRangeResolvedToDifferentDatesOrForDifferentLocales(): void
     {
         $request = $this->buildRequest(['dateRange' => ['type' => 'last_month']]);

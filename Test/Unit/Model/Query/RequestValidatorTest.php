@@ -8,6 +8,8 @@ use DateTimeImmutable;
 use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Exception\AuthorizationException;
 use Magento\Framework\Phrase;
+use Magento\Store\Api\Data\StoreInterface;
+use Magento\Store\Model\StoreManagerInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
@@ -31,6 +33,8 @@ use MageOS\AdvancedReport\Model\Query\FilterCondition;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Query\ReportRequest;
 use MageOS\AdvancedReport\Model\Query\RequestValidator;
+use MageOS\AdvancedReport\Model\Query\SortOrder;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -48,6 +52,8 @@ final class RequestValidatorTest extends TestCase
     private DefinitionRegistry&Stub $definitionRegistry;
     private AuthorizationInterface&Stub $authorization;
     private Config&Stub $config;
+    private DatasetAccess&Stub $datasetAccess;
+    private StoreManagerInterface&Stub $storeManager;
     private RequestValidator $validator;
 
     protected function setUp(): void
@@ -57,6 +63,13 @@ final class RequestValidatorTest extends TestCase
         $this->authorization->method('isAllowed')->willReturn(true);
         $this->config = $this->createStub(Config::class);
         $this->config->method('getMaxRows')->willReturn(10000);
+
+        $this->datasetAccess = $this->createStub(DatasetAccess::class);
+
+        $store = $this->createStub(StoreInterface::class);
+        $store->method('getId')->willReturn(1);
+        $this->storeManager = $this->createStub(StoreManagerInterface::class);
+        $this->storeManager->method('getStores')->willReturn([1 => $store]);
 
         $this->validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config);
     }
@@ -70,11 +83,19 @@ final class RequestValidatorTest extends TestCase
         DefinitionRegistry $definitionRegistry,
         AuthorizationInterface $authorization,
         Config $config,
+        ?DatasetAccess $datasetAccess = null,
     ): RequestValidator {
         $clock = $this->createStub(ClockInterface::class);
         $clock->method('today')->willReturn(new DateTimeImmutable(self::TODAY));
 
-        return new RequestValidator($definitionRegistry, $authorization, new DateRangeResolver($clock), $config);
+        return new RequestValidator(
+            $definitionRegistry,
+            $authorization,
+            new DateRangeResolver($clock),
+            $config,
+            $datasetAccess ?? $this->datasetAccess,
+            $this->storeManager,
+        );
     }
 
     /**
@@ -120,16 +141,40 @@ final class RequestValidatorTest extends TestCase
         $this->validator->validate(self::requestWithDimensions([$dimensionSelection]));
     }
 
-    public function testItRejectsDatasetsTheAdminIsNotAllowedToQuery(): void
+    public function testItRejectsARequestWhenTheDatasetCoreResourceIsDenied(): void
     {
-        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
-        $this->authorization = $this->createStub(AuthorizationInterface::class);
-        $this->authorization->method('isAllowed')->willReturn(false);
-        $this->validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config);
+        $dataset = self::salesOrdersDataset();
+        $this->definitionRegistry->method('getDataset')->willReturn($dataset);
+        $datasetAccess = $this->createMock(DatasetAccess::class);
+        $datasetAccess->expects(self::once())->method('assertAllowed')->with($dataset)->willThrowException(
+            new AuthorizationException(new Phrase('denied'))
+        );
+        $validator = $this->buildValidator(
+            $this->definitionRegistry,
+            $this->authorization,
+            $this->config,
+            $datasetAccess
+        );
 
         $this->expectException(AuthorizationException::class);
 
-        $this->validator->validate(self::requestWithMetrics(['orders']));
+        $validator->validate(self::requestWithMetrics(['orders']));
+    }
+
+    public function testItAcceptsARequestWhenModuleAndCoreResourcesAreGranted(): void
+    {
+        $dataset = self::salesOrdersDataset();
+        $this->definitionRegistry->method('getDataset')->willReturn($dataset);
+        $datasetAccess = $this->createMock(DatasetAccess::class);
+        $datasetAccess->expects(self::once())->method('assertAllowed')->with($dataset);
+        $validator = $this->buildValidator(
+            $this->definitionRegistry,
+            $this->authorization,
+            $this->config,
+            $datasetAccess
+        );
+
+        $validator->validate(self::requestWithMetrics(['orders']));
     }
 
     public function testItRejectsFilterOperatorsNotAllowedForTheFieldType(): void
@@ -185,6 +230,106 @@ final class RequestValidatorTest extends TestCase
         $this->expectException(InvalidRequestException::class);
 
         $this->validator->validate(self::buildRequest(limit: 101));
+    }
+
+    /**
+     * @return array<string,array{0:SortOrder}>
+     */
+    public static function invalidSortProvider(): array
+    {
+        return [
+            'unselected metric' => [new SortOrder('net_sales')],
+            'unselected dimension' => [new SortOrder('channel')],
+            'unknown code' => [new SortOrder('bogus')],
+        ];
+    }
+
+    #[DataProvider('invalidSortProvider')]
+    public function testItRejectsASortTargetThatIsNotASelectedMetricOrDimension(SortOrder $sort): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(sort: [$sort]));
+    }
+
+    public function testItRejectsAnUnknownSortDirection(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(sort: [new SortOrder('orders', 'sideways')]));
+    }
+
+    public function testItAcceptsASortByASelectedMetricAndDimension(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->validator->validate(self::buildRequest(
+            dimensions: [new DimensionSelection('channel')],
+            sort: [new SortOrder('orders', 'DESC'), new SortOrder('channel', 'asc')],
+            storeIds: [1],
+        ));
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testItRejectsAStoreIdThatDoesNotExist(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(storeIds: [99]));
+    }
+
+    public function testItRejectsTheAdminStoreId(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(storeIds: [0]));
+    }
+
+    public function testItRejectsANegativeOffset(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(offset: -1));
+    }
+
+    public function testItRejectsALimitLowerThanOne(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(limit: 0));
+    }
+
+    public function testItRejectsAnUnknownPreset(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->definitionRegistry->method('getPreset')->willThrowException(new NoSuchDefinitionException(new Phrase('x')));
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(preset: 'ghost'));
+    }
+
+    public function testItRejectsAPresetBelongingToAnotherDataset(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->definitionRegistry->method('getPreset')->willReturn(self::preset('stock', 'catalog_stock', null));
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(preset: 'stock'));
     }
 
     /**
@@ -291,12 +436,14 @@ final class RequestValidatorTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function testItSkipsAclChecksWhenAskedToByATrustedCaller(): void
+    public function testItSkipsDatasetAccessWhenAclCheckingIsDisabled(): void
     {
         $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
         $authorization = $this->createMock(AuthorizationInterface::class);
         $authorization->expects(self::never())->method('isAllowed');
-        $validator = $this->buildValidator($this->definitionRegistry, $authorization, $this->config);
+        $datasetAccess = $this->createMock(DatasetAccess::class);
+        $datasetAccess->expects(self::never())->method('assertAllowed');
+        $validator = $this->buildValidator($this->definitionRegistry, $authorization, $this->config, $datasetAccess);
 
         $validator->validate(self::buildRequest(source: 'mysql'), checkAcl: false);
 
@@ -308,7 +455,14 @@ final class RequestValidatorTest extends TestCase
         $this->definitionRegistry->method('getDataset')->willReturn(self::catalogStockDataset());
         $dateRangeResolver = $this->createMock(DateRangeResolver::class);
         $dateRangeResolver->expects(self::never())->method('resolve');
-        $validator = new RequestValidator($this->definitionRegistry, $this->authorization, $dateRangeResolver, $this->config);
+        $validator = new RequestValidator(
+            $this->definitionRegistry,
+            $this->authorization,
+            $dateRangeResolver,
+            $this->config,
+            $this->datasetAccess,
+            $this->storeManager
+        );
 
         // A day granularity over 400 days and a first_order field over 12 months would
         // both be rejected on a dated dataset; here they must be silently ignored.
@@ -417,6 +571,8 @@ final class RequestValidatorTest extends TestCase
      * @param string[] $metricCodes
      * @param DimensionSelection[] $dimensions
      * @param FilterCondition[] $filters
+     * @param SortOrder[] $sort
+     * @param int[] $storeIds
      */
     private static function buildRequest(
         string $dataset = 'sales_orders',
@@ -427,6 +583,9 @@ final class RequestValidatorTest extends TestCase
         ?DateRange $dateRange = null,
         ?int $limit = null,
         ?string $source = null,
+        array $sort = [],
+        int $offset = 0,
+        array $storeIds = [],
     ): ReportRequest {
         return new ReportRequest(
             dataset: $dataset,
@@ -436,10 +595,10 @@ final class RequestValidatorTest extends TestCase
             filters: $filters,
             dateRange: $dateRange ?? new DateRange(DateRangeType::LAST_30_DAYS),
             compareTo: CompareMode::NONE,
-            sort: [],
+            sort: $sort,
             limit: $limit,
-            offset: 0,
-            storeIds: [],
+            offset: $offset,
+            storeIds: $storeIds,
             source: $source,
             bypassCache: false,
         );

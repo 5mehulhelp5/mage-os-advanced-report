@@ -459,6 +459,18 @@ bin/magento advanced-report:inventory --output=docs/metric-inventory.md
   (`COUNT DISTINCT` over emails), sales by category (one row per product category) and the dead stock / never sold
   presets (anti-joins on `sales_order_item`). Prefer shorter periods on very large catalogs or order tables.
 
+## Security and permissions
+
+Access is enforced server-side: a dataset needs its module ACL (`sales`, `catalog`, `customers`) **and** the core ACL of
+its entity. Full functionality needs these core resources:
+
+- `Magento_Sales::sales_order` (`sales_orders`, `customer_orders`, `sales_items`)
+- `Magento_Customer::manage` (`customers`)
+- `Magento_Catalog::products` (`catalog_stock`)
+- `Magento_InventoryApi::stock` (`catalog_salable`, MSI only)
+
+Details, the entry-point inventory and the data classification are in [docs/security.md](docs/security.md).
+
 ## Known limits
 
 The full list with severity and owner is in the [risk register](docs/risk-register.md). Metric semantics are in the [metric definitions](docs/metric-definitions.md).
@@ -467,6 +479,7 @@ The full list with severity and owner is in the [risk register](docs/risk-regist
 
 - [Metric definitions](docs/metric-definitions.md): business definition of every metric (formula, cancel/refund treatment, currency, date attribution, additivity, known limits) with the integration tests that prove it, and physical vs reserved vs salable quantities.
 - [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
+- [Security](docs/security.md): ACL model per entry point and dataset, data classification, cache and logging.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.
 - [Compatibility](docs/compatibility.md): supported Magento, PHP and database versions and the CI job enforcing each.
 

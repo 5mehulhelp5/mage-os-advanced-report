@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Exploration;
 
-use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Exception\NoSuchEntityException;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\Data\SavedReportInterface;
@@ -16,6 +15,7 @@ use MageOS\AdvancedReport\Model\Definition\Preset;
 use MageOS\AdvancedReport\Model\Exploration\InitialStateResolver;
 use MageOS\AdvancedReport\Model\Query\PresetRequestBuilder;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -63,6 +63,27 @@ final class InitialStateResolverTest extends TestCase
         self::assertSame([], $result['request']['metrics']);
     }
 
+    public function testItThrowsNotFoundWhenOpeningASavedReportOfAnInaccessibleDataset(): void
+    {
+        $this->expectException(NoSuchEntityException::class);
+
+        $this->resolver(saved: $this->saved(5, true), firstDatasetDenied: true)->resolve(null, 3, 5);
+    }
+
+    public function testItThrowsNotFoundWhenOpeningAPresetOfAnInaccessibleDataset(): void
+    {
+        $this->expectException(NoSuchEntityException::class);
+
+        $this->resolver(firstDatasetDenied: true)->resolve('overview', null, 5);
+    }
+
+    public function testItStartsAnEmptyExplorationOnTheFirstAccessibleDataset(): void
+    {
+        $result = $this->resolver(firstDatasetDenied: true)->resolve(null, null, 5);
+
+        self::assertSame('sales_items', $result['request']['dataset']);
+    }
+
     private function saved(int $owner, bool $shared): SavedReportInterface
     {
         $saved = $this->createStub(SavedReportInterface::class);
@@ -76,8 +97,10 @@ final class InitialStateResolverTest extends TestCase
         return $saved;
     }
 
-    private function resolver(?SavedReportInterface $saved = null): InitialStateResolver
-    {
+    private function resolver(
+        ?SavedReportInterface $saved = null,
+        bool $firstDatasetDenied = false,
+    ): InitialStateResolver {
         $dataset = new Dataset(
             'sales_orders',
             'Orders',
@@ -93,10 +116,27 @@ final class InitialStateResolverTest extends TestCase
             [],
             [],
         );
+        $second = new Dataset(
+            'sales_items',
+            'Items',
+            'MageOS_AdvancedReport::sales',
+            'sales',
+            false,
+            null,
+            null,
+            null,
+            [],
+            [],
+            [],
+            [],
+            [],
+        );
         $preset = new Preset('overview', 'sales', 'Overview', 'sales_orders', ['m'], [], [], [], 'none', null, []);
         $registry = $this->createStub(DefinitionRegistry::class);
-        $registry->method('getDataset')->willReturn($dataset);
-        $registry->method('getDatasets')->willReturn(['sales_orders' => $dataset]);
+        $registry->method('getDataset')->willReturnCallback(
+            static fn (string $code): Dataset => $code === 'sales_items' ? $second : $dataset
+        );
+        $registry->method('getDatasets')->willReturn(['sales_orders' => $dataset, 'sales_items' => $second]);
         $registry->method('getPreset')->willReturnCallback(
             static fn (string $code): Preset => $code === 'overview'
                 ? $preset
@@ -110,9 +150,11 @@ final class InitialStateResolverTest extends TestCase
         $builder->method('build')->willReturn($this->createStub(ReportRequestInterface::class));
         $factory = $this->createStub(ReportRequestFactory::class);
         $factory->method('toArray')->willReturn(['from' => 'preset']);
-        $authorization = $this->createStub(AuthorizationInterface::class);
-        $authorization->method('isAllowed')->willReturn(true);
+        $datasetAccess = $this->createStub(DatasetAccess::class);
+        $datasetAccess->method('isAllowed')->willReturnCallback(
+            static fn (Dataset $candidate): bool => !($firstDatasetDenied && $candidate->code === 'sales_orders')
+        );
 
-        return new InitialStateResolver($registry, $repository, $builder, $factory, $authorization);
+        return new InitialStateResolver($registry, $repository, $builder, $factory, $datasetAccess);
     }
 }

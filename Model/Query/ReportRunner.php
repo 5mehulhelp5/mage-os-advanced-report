@@ -14,6 +14,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Preset\PresetQueryPool;
+use MageOS\AdvancedReport\Model\Security\AclContext;
 
 /**
  * The single entry point to run a report request end to end: plans it
@@ -51,6 +52,7 @@ class ReportRunner implements ReportRunnerInterface
         private readonly ReportWarningsCollector $warningsCollector,
         private readonly BaseCurrencyChecker $baseCurrencyChecker,
         private readonly LocaleResolverInterface $localeResolver,
+        private readonly AclContext $aclContext,
     ) {
     }
 
@@ -214,6 +216,7 @@ class ReportRunner implements ReportRunnerInterface
                 'comparison' => $this->rangeToDateArray($plan['comparison']?->dateRange),
             ],
             $this->localeResolver->getLocale(),
+            $this->aclContext->getFingerprint(),
         );
     }
 

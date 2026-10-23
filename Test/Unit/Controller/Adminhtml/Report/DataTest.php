@@ -23,11 +23,11 @@ use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
 use MageOS\AdvancedReport\Model\Sales\CountedStatusesDescriber;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\LoggerInterface;
 
 #[CoversClass(Data::class)]
 final class DataTest extends TestCase
@@ -35,7 +35,7 @@ final class DataTest extends TestCase
     private ReportRunnerInterface&Stub $runner;
     private ReportRequestFactory&Stub $requestFactory;
     private ModuleGuard&Stub $guard;
-    private LoggerInterface $logger;
+    private ErrorLogger $logger;
     private JsonResult&MockObject $jsonResult;
     private RequestInterface&Stub $request;
     private DefinitionRegistry&Stub $registry;
@@ -68,7 +68,7 @@ final class DataTest extends TestCase
         $this->registry->method('getDataset')->willReturn($this->dataset);
         $this->describer = $this->createStub(CountedStatusesDescriber::class);
         $this->guard = $this->createStub(ModuleGuard::class);
-        $this->logger = $this->createStub(LoggerInterface::class);
+        $this->logger = $this->createStub(ErrorLogger::class);
         $this->jsonResult = $this->createMock(JsonResult::class);
         $this->request = $this->createStub(RequestInterface::class);
     }
@@ -151,8 +151,8 @@ final class DataTest extends TestCase
     public function testItReturns500WithoutExposingInternalsAndLogsTheException(): void
     {
         $this->runner->method('run')->willThrowException(new \RuntimeException('SELECT secret FROM x'));
-        $this->logger = $this->createMock(LoggerInterface::class);
-        $this->logger->expects(self::once())->method('error');
+        $this->logger = $this->createMock(ErrorLogger::class);
+        $this->logger->expects(self::once())->method('log');
 
         $this->assertError(500, 'An error occurred while running the report.');
     }

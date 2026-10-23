@@ -4,18 +4,19 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Preset;
 
-use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\PresetQueryInterface;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\DataSourcePool;
+use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\NoSourceAvailableException;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 
 /**
  * "Low stock with coverage": per SKU current quantity (stock dataset) combined with the units
@@ -28,14 +29,15 @@ use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 class LowStockCoverageQuery implements PresetQueryInterface
 {
     private const int SALES_WINDOW_DAYS = 30;
-    private const string SALES_ACL_RESOURCE = 'MageOS_AdvancedReport::sales';
+    private const string SALES_DATASET = 'sales_items';
     private const string STOCK_SOURCE = 'mysql';
 
     public function __construct(
         private readonly DataSourcePool $dataSourcePool,
         private readonly ReportRunnerInterface $reportRunner,
         private readonly ReportRequestFactory $reportRequestFactory,
-        private readonly AuthorizationInterface $authorization,
+        private readonly DatasetAccess $datasetAccess,
+        private readonly DefinitionRegistry $definitionRegistry,
         private readonly Config $config,
     ) {
     }
@@ -46,7 +48,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
 
         $warnings = [];
         $unitsSold = null;
-        if ($this->authorization->isAllowed(self::SALES_ACL_RESOURCE)) {
+        if ($this->datasetAccess->isAllowed($this->definitionRegistry->getDataset(self::SALES_DATASET))) {
             $unitsSold = $this->loadUnitsSold($request);
         } else {
             $warnings[] = (string) new Phrase(
@@ -121,7 +123,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
     private function loadUnitsSold(ReportRequestInterface $request): array
     {
         $salesRequest = $this->reportRequestFactory->fromArray([
-            'dataset' => 'sales_items',
+            'dataset' => self::SALES_DATASET,
             'metrics' => ['units_sold'],
             'dimensions' => [['code' => 'sku', 'granularity' => null]],
             'dateRange' => ['type' => 'last_30_days'],

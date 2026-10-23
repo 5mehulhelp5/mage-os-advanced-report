@@ -7,6 +7,8 @@ namespace MageOS\AdvancedReport\Model\Query;
 use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Exception\AuthorizationException;
 use Magento\Framework\Phrase;
+use Magento\Store\Api\Data\StoreInterface;
+use Magento\Store\Model\StoreManagerInterface;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
@@ -15,6 +17,7 @@ use MageOS\AdvancedReport\Model\Definition\FilterOperator;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 
 /**
  * Semantically validates a {@see ReportRequestInterface} against the semantic layer, ACL
@@ -34,12 +37,16 @@ class RequestValidator
      * @param AuthorizationInterface $authorization
      * @param DateRangeResolver $dateRangeResolver
      * @param Config $config
+     * @param DatasetAccess $datasetAccess
+     * @param StoreManagerInterface $storeManager
      */
     public function __construct(
         private readonly DefinitionRegistry $definitionRegistry,
         private readonly AuthorizationInterface $authorization,
         private readonly DateRangeResolver $dateRangeResolver,
         private readonly Config $config,
+        private readonly DatasetAccess $datasetAccess,
+        private readonly StoreManagerInterface $storeManager,
     ) {
     }
 
@@ -55,7 +62,7 @@ class RequestValidator
         $dataset = $this->definitionRegistry->getDataset($request->getDataset());
 
         if ($checkAcl) {
-            $this->assertAllowed($dataset->aclResource);
+            $this->datasetAccess->assertAllowed($dataset);
             $this->assertSourceOverrideAllowed($request);
         }
 
@@ -63,6 +70,10 @@ class RequestValidator
         $this->assertDimensionsValid($dataset, $request);
         $this->assertFiltersValid($dataset, $request);
         $this->assertLimitValid($request);
+        $this->assertOffsetValid($request);
+        $this->assertSortValid($request);
+        $this->assertStoreIdsValid($request);
+        $this->assertPresetValid($dataset, $request);
 
         if (!$dataset->dateless) {
             $resolvedRange = $this->dateRangeResolver->resolve($request->getDateRange());
@@ -244,9 +255,91 @@ class RequestValidator
     {
         $limit = $request->getLimit();
         $maxRows = $this->config->getMaxRows();
+        if ($limit !== null && $limit < 1) {
+            throw new InvalidRequestException(new Phrase('The limit must be at least 1.'));
+        }
         if ($limit !== null && $limit > $maxRows) {
             throw new InvalidRequestException(
                 new Phrase('Limit %1 exceeds the maximum of %2 rows.', [$limit, $maxRows])
+            );
+        }
+    }
+
+    /**
+     * @param ReportRequestInterface $request
+     */
+    private function assertOffsetValid(ReportRequestInterface $request): void
+    {
+        if ($request->getOffset() < 0) {
+            throw new InvalidRequestException(new Phrase('The offset must not be negative.'));
+        }
+    }
+
+    /**
+     * @param ReportRequestInterface $request
+     */
+    private function assertSortValid(ReportRequestInterface $request): void
+    {
+        $selectable = $request->getMetrics();
+        foreach ($request->getDimensions() as $dimensionSelection) {
+            $selectable[] = $dimensionSelection->code;
+        }
+
+        foreach ($request->getSort() as $sort) {
+            if (!\in_array($sort->by, $selectable, true)) {
+                throw new InvalidRequestException(
+                    new Phrase('Cannot sort by "%1": it is not a selected metric or dimension.', [$sort->by])
+                );
+            }
+            if (!\in_array(strtolower($sort->direction), ['asc', 'desc'], true)) {
+                throw new InvalidRequestException(
+                    new Phrase('Unknown sort direction "%1".', [$sort->direction])
+                );
+            }
+        }
+    }
+
+    /**
+     * @param ReportRequestInterface $request
+     */
+    private function assertStoreIdsValid(ReportRequestInterface $request): void
+    {
+        $storeIds = $request->getStoreIds();
+        if ($storeIds === []) {
+            return;
+        }
+
+        $knownIds = array_map(
+            static fn (StoreInterface $store): int => (int)$store->getId(),
+            $this->storeManager->getStores(false)
+        );
+        foreach ($storeIds as $storeId) {
+            if (!\in_array($storeId, $knownIds, true)) {
+                throw new InvalidRequestException(new Phrase('Unknown store id "%1".', [$storeId]));
+            }
+        }
+    }
+
+    /**
+     * @param Dataset $dataset
+     * @param ReportRequestInterface $request
+     */
+    private function assertPresetValid(Dataset $dataset, ReportRequestInterface $request): void
+    {
+        $presetCode = $request->getPreset();
+        if ($presetCode === null) {
+            return;
+        }
+
+        try {
+            $preset = $this->definitionRegistry->getPreset($presetCode);
+        } catch (NoSuchDefinitionException) {
+            throw new InvalidRequestException(new Phrase('Unknown preset "%1".', [$presetCode]));
+        }
+
+        if ($preset->dataset !== $dataset->code) {
+            throw new InvalidRequestException(
+                new Phrase('Preset "%1" does not belong to dataset "%2".', [$presetCode, $dataset->code])
             );
         }
     }

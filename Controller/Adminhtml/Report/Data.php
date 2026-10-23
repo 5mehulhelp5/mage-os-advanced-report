@@ -19,7 +19,7 @@ use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
 use MageOS\AdvancedReport\Model\Sales\CountedStatusesDescriber;
-use Psr\Log\LoggerInterface;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 
 /**
  * Runs a report request and returns the result as JSON.
@@ -37,7 +37,7 @@ class Data extends Action implements HttpPostActionInterface
      * @param ReportRequestFactory $requestFactory
      * @param ReportRunnerInterface $reportRunner
      * @param ModuleGuard $moduleGuard
-     * @param LoggerInterface $logger
+     * @param ErrorLogger $errorLogger
      * @param DefinitionRegistry $registry
      * @param CountedStatusesDescriber $describer
      */
@@ -48,7 +48,7 @@ class Data extends Action implements HttpPostActionInterface
         private readonly ReportRequestFactory $requestFactory,
         private readonly ReportRunnerInterface $reportRunner,
         private readonly ModuleGuard $moduleGuard,
-        private readonly LoggerInterface $logger,
+        private readonly ErrorLogger $errorLogger,
         private readonly DefinitionRegistry $registry,
         private readonly CountedStatusesDescriber $describer,
     ) {
@@ -82,7 +82,7 @@ class Data extends Action implements HttpPostActionInterface
         } catch (QueryTimeoutException $e) {
             return $this->error($result, 504, $e->getMessage());
         } catch (\Throwable $e) {
-            $this->logger->error($e->getMessage(), ['exception' => $e]);
+            $this->errorLogger->log($e, 'advanced_report_data');
 
             return $this->error($result, 500, (string) __('An error occurred while running the report.'));
         }

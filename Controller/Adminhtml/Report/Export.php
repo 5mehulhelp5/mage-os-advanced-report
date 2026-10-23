@@ -17,7 +17,7 @@ use Magento\Framework\Stdlib\DateTime\DateTime;
 use MageOS\AdvancedReport\Model\Export\CsvExporter;
 use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
-use Psr\Log\LoggerInterface;
+use MageOS\AdvancedReport\Model\Security\ErrorLogger;
 
 /**
  * Downloads the given report request as CSV.
@@ -37,7 +37,7 @@ class Export extends Action implements HttpPostActionInterface
      * @param CsvExporter $exporter
      * @param ModuleGuard $moduleGuard
      * @param DateTime $dateTime
-     * @param LoggerInterface $logger
+     * @param ErrorLogger $errorLogger
      */
     public function __construct(
         Context $context,
@@ -47,7 +47,7 @@ class Export extends Action implements HttpPostActionInterface
         private readonly CsvExporter $exporter,
         private readonly ModuleGuard $moduleGuard,
         private readonly DateTime $dateTime,
-        private readonly LoggerInterface $logger,
+        private readonly ErrorLogger $errorLogger,
     ) {
         parent::__construct($context);
     }
@@ -72,7 +72,7 @@ class Export extends Action implements HttpPostActionInterface
                 'text/csv'
             );
         } catch (\Throwable $e) {
-            $this->logger->error($e->getMessage(), ['exception' => $e]);
+            $this->errorLogger->log($e, 'advanced_report_export');
             $this->messageManager->addErrorMessage(__('The report could not be exported.'));
 
             return $this->resultRedirectFactory->create()->setPath('*/*/index');

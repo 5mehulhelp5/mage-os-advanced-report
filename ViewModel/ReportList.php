@@ -6,11 +6,11 @@ namespace MageOS\AdvancedReport\ViewModel;
 
 use Magento\Backend\Model\Auth\Session;
 use Magento\Backend\Model\UrlInterface;
-use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\View\Element\Block\ArgumentInterface;
 use MageOS\AdvancedReport\Api\SavedReportRepositoryInterface;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
+use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 
 /**
  * Presets and saved reports grouped by area, filtered by the admin's dataset ACLs.
@@ -33,14 +33,14 @@ class ReportList implements ArgumentInterface
     /**
      * @param DefinitionRegistry $registry
      * @param SavedReportRepositoryInterface $savedReportRepository
-     * @param AuthorizationInterface $authorization
+     * @param DatasetAccess $datasetAccess
      * @param Session $authSession
      * @param UrlInterface $urlBuilder
      */
     public function __construct(
         private readonly DefinitionRegistry $registry,
         private readonly SavedReportRepositoryInterface $savedReportRepository,
-        private readonly AuthorizationInterface $authorization,
+        private readonly DatasetAccess $datasetAccess,
         private readonly Session $authSession,
         private readonly UrlInterface $urlBuilder,
     ) {
@@ -91,12 +91,12 @@ class ReportList implements ArgumentInterface
     private function isDatasetAllowed(string $datasetCode): bool
     {
         try {
-            $acl = $this->registry->getDataset($datasetCode)->aclResource;
+            $dataset = $this->registry->getDataset($datasetCode);
         } catch (NoSuchDefinitionException) {
             return false;
         }
 
-        return $this->authorization->isAllowed($acl);
+        return $this->datasetAccess->isAllowed($dataset);
     }
 
     /**

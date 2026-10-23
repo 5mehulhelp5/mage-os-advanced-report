@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
+use Rector\Renaming\Rector\MethodCall\RenameMethodRector;
 use Rector\PHPUnit\Set\PHPUnitSetList;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\TypeDeclaration\Rector\ClassMethod\ReturnNeverTypeRector;
@@ -22,6 +23,8 @@ return RectorConfig::configure()
     ->withPreparedSets(typeDeclarations: true)
     ->withSkip([
         ReturnNeverTypeRector::class,
+        // The PHPUnit 13 set renames expectExceptionMessage(), which Magento's PHPUnit 12 unit runner lacks.
+        RenameMethodRector::class,
         // Needs the Magento integration test framework, which the standalone install does not ship.
         __DIR__ . '/Test/Integration',
     ]);

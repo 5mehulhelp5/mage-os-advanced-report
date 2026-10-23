@@ -57,7 +57,7 @@ jobs:
           kind: extension
           matrix: ${{ steps.matrix.outputs.matrix }}
 
-  # PHPUnit 13 (require-dev) unit suite, PHP-CS-Fixer, PHPStan and XSD validation,
+  # PHPUnit 13 (require-dev) unit suite, PHP-CS-Fixer, PHPStan, Rector, PHPMD, ESLint and XSD validation,
   # run on the standalone module install. phpunit/phpunit ^13.3 needs PHP >= 8.4.
   quality:
     name: Code quality (PHP ${{ matrix.php }})
@@ -78,8 +78,17 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
       - run: composer test:cs-fixer
       - run: composer test:phpstan -- --no-progress --error-format=github
+      - run: composer test:rector
+      - run: composer test:phpmd
       - run: composer test:unit
       - run: composer test:xml
+
+      # ESLint resolves the Magento coding standard config from vendor/, so it runs after composer install.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
 
   # setup:di:compile inside a Magento install, for every supported version.
   compile-extension:

@@ -9,6 +9,7 @@
     "config": {
         "sort-packages": true,
         "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": false,
             "magento/composer-dependency-version-audit-plugin": true,
             "magento/magento-composer-installer": false
         }
@@ -37,9 +38,12 @@
     "require-dev": {
         "bitexpert/phpstan-magento": "^0.44",
         "friendsofphp/php-cs-fixer": "^3.95",
+        "magento/magento-coding-standard": "^41",
+        "phpmd/phpmd": "^3@dev",
         "phpstan/phpstan": "^2.2",
         "phpstan/phpstan-phpunit": "^2.0",
-        "phpunit/phpunit": "^13.3"
+        "phpunit/phpunit": "^13.3",
+        "rector/rector": "^2.6"
     },
     "autoload": {
         "files": [
@@ -60,10 +64,14 @@
         "test:phpstan": "phpstan analyse --memory-limit=1G",
         "test:cs-fixer": "php-cs-fixer fix --dry-run --diff --allow-risky=yes",
         "test:xml": "php dev/validate-xml.php",
+        "test:rector": "rector process --dry-run",
+        "test:phpmd": "phpmd analyze --format=text --ruleset=phpmd.xml Api Console Controller Model Observer Test ViewModel",
         "test": [
             "@test:unit",
             "@test:phpstan",
             "@test:cs-fixer",
+            "@test:rector",
+            "@test:phpmd",
             "@test:xml"
         ]
     }

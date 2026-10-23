@@ -16,7 +16,7 @@ on `master` (commit `c582fd2`, 2026-10-16), all jobs green.
 | Magento Open Source 2.4.9 | PHP 8.5, MySQL 8.4 | matrix entry: same jobs; also verified locally with `make integration` (Magento 2.4.9 / PHP 8.5 / MySQL 8.4) | tested (integration: 76 tests, 420 assertions, CI and local) |
 | Mage-OS | 2.4.7+ equivalents | none (the matrix uses the Magento Open Source project only) | declared, not tested |
 | PHP 8.3 | `composer.json` `~8.3\|\|~8.4\|\|~8.5` | none while 2.4.7-p10 is out of the matrix; the quality job cannot run 8.3 because PHPUnit 13 needs PHP 8.4+ | declared, not tested |
-| PHP 8.4, 8.5 | same | matrix entries (2.4.8-p5, 2.4.9) and the quality job matrix 8.4/8.5 (cs-fixer, phpstan, unit, `composer test:xml`) | tested (unit: 651 tests on both) |
+| PHP 8.4, 8.5 | same | matrix entries (2.4.8-p5, 2.4.9) and the quality job matrix 8.4/8.5 (cs-fixer, phpstan, rector, phpmd, unit, `composer test:xml`, `npm run lint`) | tested (unit: 651 tests on both) |
 | MySQL | 8.4 (matrix entries and local). The Guardrails set `MAX_EXECUTION_TIME` | integration-test service per matrix entry | tested on 8.4; 8.0 (the 2.4.7 service) not tested |
 | MariaDB | declared. The Guardrails set `max_statement_time` | none | declared, not tested |
 | OpenSearch | not required (datasets use the SQL data source) | none | n/a |

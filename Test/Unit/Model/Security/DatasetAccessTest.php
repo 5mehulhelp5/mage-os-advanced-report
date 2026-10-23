@@ -65,7 +65,7 @@ final class DatasetAccessTest extends TestCase
         $access = $this->access(['MageOS_AdvancedReport::orders']);
 
         $this->expectException(AuthorizationException::class);
-        $this->expectExceptionMessage('You are not allowed to query the resource "Magento_Sales::sales_order".');
+        $this->expectExceptionMessageIsOrContains('You are not allowed to query the resource "Magento_Sales::sales_order".');
 
         $access->assertAllowed($this->dataset('sales_orders'));
     }

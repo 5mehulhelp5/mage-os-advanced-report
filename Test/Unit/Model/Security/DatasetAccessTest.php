@@ -65,7 +65,7 @@ final class DatasetAccessTest extends TestCase
         $access = $this->access(['MageOS_AdvancedReport::orders']);
 
         $this->expectException(AuthorizationException::class);
-        $this->expectExceptionMessageIsOrContains('You are not allowed to query the resource "Magento_Sales::sales_order".');
+        $this->expectExceptionMessage('You are not allowed to query the resource "Magento_Sales::sales_order".');
 
         $access->assertAllowed($this->dataset('sales_orders'));
     }
@@ -114,7 +114,7 @@ final class DatasetAccessTest extends TestCase
     {
         $authorization = $this->createStub(AuthorizationInterface::class);
         $authorization->method('isAllowed')->willReturnCallback(
-            static fn (string $id): bool => in_array($id, $granted, true)
+            static fn (string $id): bool => \in_array($id, $granted, true)
         );
         $provider = $this->createStub(ProviderInterface::class);
         $provider->method('getAclResources')->willReturn(self::TREE);

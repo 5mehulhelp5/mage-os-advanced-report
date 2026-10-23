@@ -47,8 +47,8 @@ class ReportRequestFactory
     }
 
     /**
-     * @return DimensionSelection[]
      * @throws InvalidRequestException
+     * @return DimensionSelection[]
      */
     private function parseDimensions(mixed $dimensions): array
     {
@@ -68,8 +68,8 @@ class ReportRequestFactory
     }
 
     /**
-     * @return FilterCondition[]
      * @throws InvalidRequestException
+     * @return FilterCondition[]
      */
     private function parseFilters(mixed $filters): array
     {
@@ -90,8 +90,8 @@ class ReportRequestFactory
     }
 
     /**
-     * @return SortOrder[]
      * @throws InvalidRequestException
+     * @return SortOrder[]
      */
     private function parseSort(mixed $sort): array
     {
@@ -111,8 +111,8 @@ class ReportRequestFactory
     }
 
     /**
-     * @return int[]
      * @throws InvalidRequestException
+     * @return int[]
      */
     private function parseStoreIds(mixed $storeIds): array
     {
@@ -129,8 +129,8 @@ class ReportRequestFactory
     }
 
     /**
-     * @return array<int,array<string,mixed>>
      * @throws InvalidRequestException
+     * @return array<int,array<string,mixed>>
      */
     private function requireListOfArrays(mixed $value, string $key): array
     {

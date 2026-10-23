@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql;
 
 use DateTimeImmutable;
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\AggregateExpressionBuilder;
@@ -35,6 +34,7 @@ use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\SourceMapping;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\FilterCondition;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
@@ -176,6 +176,19 @@ final class SelectBuilderTest extends TestCase
         self::assertStringNotContainsString('main.status', $sql);
     }
 
+    public function testItPassesTheReportScopeFirstDayOfWeekToTheWeekBucketDimensionExpression(): void
+    {
+        $query = $this->query(
+            metrics: ['orders'],
+            dimensions: [new DimensionSelection('order_date', Granularity::WEEK)],
+            firstDayOfWeek: 3,
+        );
+
+        $sql = $this->sql($query);
+
+        self::assertStringContainsString('- 1 - 3 + 7) % 7 DAY', $sql);
+    }
+
     public function testItResolvesExpressionProvidersByName(): void
     {
         $provider = $this->createStub(FieldExpressionProviderInterface::class);
@@ -248,10 +261,99 @@ final class SelectBuilderTest extends TestCase
         self::assertStringContainsString('main.created_at >=', $sql);
     }
 
+    public function testItSelectsDistinctBaseCurrencyCodesLimitedToTwoRows(): void
+    {
+        $sql = $this->probeSql($this->query(metrics: ['orders']));
+
+        self::assertSame(
+            "SELECT DISTINCT main.base_currency_code AS `base_currency_code`"
+            . " FROM `sales_order` AS `main` WHERE (main.status NOT IN ('canceled')) LIMIT 2",
+            $sql
+        );
+    }
+
+    public function testItAppliesTheDateRangeStoreScopeAndFiltersOfTheQueryToTheProbe(): void
+    {
+        $map = $this->createStub(StoreTimezoneMap::class);
+        $map->method('toUtcRange')->willReturn(['from' => '2026-01-01 00:00:00', 'to' => '2026-02-01 00:00:00']);
+        $map->method('hasMultipleTimezones')->willReturn(false);
+
+        $sql = $this->probeSql($this->query(
+            metrics: ['orders'],
+            filters: [new FilterCondition('customer_group_id', FilterOperator::EQ, 3)],
+            storeIds: [1, 2],
+            withRange: true
+        ), $map);
+
+        self::assertStringContainsString(
+            "WHERE (main.created_at >= '2026-01-01 00:00:00' AND main.created_at < '2026-02-01 00:00:00')"
+            . " AND (main.store_id IN (1, 2)) AND (main.status NOT IN ('canceled'))"
+            . " AND (main.customer_group_id = 3)",
+            $sql
+        );
+    }
+
+    public function testItAddsTheOrderJoinWhenProbingTheSalesItemsDataset(): void
+    {
+        $dataset = $this->dataset();
+        $fields = $dataset->fields;
+        $fields['base_currency_code'] = new Field(
+            'base_currency_code',
+            'base_currency_code',
+            FieldType::STRING,
+            ['mysql' => new SourceMapping('ord.base_currency_code', null, ['ord'])]
+        );
+        $dataset = $this->withFields($dataset, $fields);
+        $joins = $dataset->joins;
+        $joins['ord'] = new Join('ord', 'sales_order', 'ord', 'ord.entity_id = main.order_id');
+        $dataset = new Dataset(
+            $dataset->code,
+            $dataset->label,
+            $dataset->aclResource,
+            $dataset->area,
+            false,
+            $dataset->baseTable,
+            $dataset->baseAlias,
+            null,
+            [],
+            $dataset->fields,
+            $joins,
+            $dataset->metrics,
+            $dataset->dimensions
+        );
+
+        $sql = $this->probeSql($this->query(metrics: ['orders'], dataset: $dataset));
+
+        self::assertStringContainsString('LEFT JOIN `sales_order` AS `ord` ON ord.entity_id = main.order_id', $sql);
+        self::assertStringContainsString('SELECT DISTINCT ord.base_currency_code', $sql);
+    }
+
+    public function testItDoesNotAddMetricJoinsToTheProbeSelect(): void
+    {
+        $sql = $this->probeSql($this->query(
+            metrics: ['orders'],
+            dimensions: [new DimensionSelection('method')]
+        ));
+
+        self::assertStringNotContainsString('JOIN', $sql);
+        self::assertStringNotContainsString('GROUP BY', $sql);
+    }
+
+    private function probeSql(ResolvedQuery $query, ?StoreTimezoneMap $dateMap = null): string
+    {
+        $resource = $this->createStub(ResourceConnection::class);
+        $resource->method('getConnectionByName')->willReturn($this->createSqlAdapter());
+        $resource->method('getTableName')->willReturnArgument(0);
+
+        return $this->normalizeSql(
+            $this->builder($resource, 'default', dateMap: $dateMap)->buildCurrencyProbe($query)
+        );
+    }
+
     public function testItBuildsATotalsSelectWithoutGroupingAndLimit(): void
     {
         $query = $this->query(metrics: ['orders'], dimensions: [new DimensionSelection('customer_group_id')]);
-        $query = new ResolvedQuery($query->dataset, ['orders'], $query->dimensions, [], null, [1], [], 10, 5);
+        $query = new ResolvedQuery($query->dataset, ['orders'], $query->dimensions, [], null, [1], [], 10, 5, new ReportScope(null, 'UTC', 0, ['UTC']));
 
         $sql = $this->normalizeSql($this->builderFor()->buildTotals($query));
 
@@ -375,7 +477,7 @@ final class SelectBuilderTest extends TestCase
         ];
     }
 
-    public function testItBuildsTheUtcHourFallbackSelectWithoutSortAndLimit(): void
+    public function testItGroupsTheFallbackSelectByHourWhenEveryTimezoneInScopeHasAWholeHourOffset(): void
     {
         $query = $this->sortedQuery(
             [new SortOrder('orders')],
@@ -397,8 +499,37 @@ final class SelectBuilderTest extends TestCase
         );
         self::assertSame(['order_date'], $fallback->replacedDimensions);
         self::assertSame(5000, $fallback->rowCap);
+        self::assertSame(60, $fallback->slotMinutes);
         self::assertNull($fallback->storeColumn);
         self::assertTrue($this->builderFor()->hasDateBucketDimension($query));
+    }
+
+    public function testItGroupsTheFallbackSelectByFifteenMinuteUtcSlotWhenATimezoneInScopeHasANonWholeHourOffset(): void
+    {
+        $map = $this->createStub(StoreTimezoneMap::class);
+        $map->method('requiresQuarterHourSlots')->willReturn(true);
+        $query = $this->sortedQuery([], [new DimensionSelection('order_hour')], null, 0);
+
+        $fallback = $this->builderFor($map)->buildUtcHourFallback($query);
+
+        self::assertStringContainsString(
+            "CONCAT(DATE_FORMAT(main.created_at, '%Y-%m-%d %H:'), LPAD(FLOOR(MINUTE(main.created_at) / 15) * 15, 2, '0'), ':00') AS `utc_hour`",
+            $this->normalizeSql($fallback->select)
+        );
+        self::assertSame(15, $fallback->slotMinutes);
+        self::assertSame(5000, $fallback->rowCap);
+    }
+
+    public function testItKeepsTheFallbackRowCapAtFiftyTimesTheMaximumRowsWithQuarterHourSlots(): void
+    {
+        $map = $this->createStub(StoreTimezoneMap::class);
+        $map->method('requiresQuarterHourSlots')->willReturn(true);
+        $query = $this->sortedQuery([], [new DimensionSelection('order_hour')], null, 0);
+
+        $fallback = $this->builderFor($map)->buildUtcHourFallback($query);
+
+        self::assertSame(100 * 50, $fallback->rowCap);
+        self::assertStringEndsWith('LIMIT 5001', $this->normalizeSql($fallback->select));
     }
 
     public function testItAddsTheStoreColumnToTheUtcHourFallbackWhenTimezonesDiffer(): void
@@ -424,7 +555,7 @@ final class SelectBuilderTest extends TestCase
     {
         $query = $this->query(metrics: ['orders', 'gross'], dimensions: $dimensions);
 
-        return new ResolvedQuery($query->dataset, ['orders', 'gross'], $dimensions, [], null, [], $sort, $limit, $offset);
+        return new ResolvedQuery($query->dataset, ['orders', 'gross'], $dimensions, [], null, [], $sort, $limit, $offset, new ReportScope(null, 'UTC', 0, ['UTC']));
     }
 
     private function builderFor(?StoreTimezoneMap $dateMap = null): SelectBuilder
@@ -501,14 +632,11 @@ final class SelectBuilderTest extends TestCase
         $timezoneAdapter = $this->createSqlAdapter();
         $tzResource = $this->createStub(ResourceConnection::class);
         $tzResource->method('getConnectionByName')->willReturn($timezoneAdapter);
-        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
-        $scopeConfig->method('getValue')->willReturn('0');
         $strategy = new TimezoneStrategy(
             $map,
             $this->createStub(TimezoneSupportDetector::class),
             $tzResource,
-            $config,
-            $scopeConfig
+            $config
         );
 
         $resolver = new FieldExpressionResolver($providers);
@@ -549,6 +677,7 @@ final class SelectBuilderTest extends TestCase
         ?Dataset $dataset = null,
         array $storeIds = [],
         bool $withRange = false,
+        int $firstDayOfWeek = 0,
     ): ResolvedQuery {
         $dataset ??= $this->dataset();
         if ($implicit !== null) {
@@ -569,7 +698,7 @@ final class SelectBuilderTest extends TestCase
             );
         }
 
-        return new ResolvedQuery($dataset, $metrics, $dimensions, $filters, $withRange ? new ResolvedDateRange(new DateTimeImmutable('2026-01-01'), new DateTimeImmutable('2026-01-31'), false, 31) : null, $storeIds, [], null, 0);
+        return new ResolvedQuery($dataset, $metrics, $dimensions, $filters, $withRange ? new ResolvedDateRange(new DateTimeImmutable('2026-01-01'), new DateTimeImmutable('2026-01-31'), false, 31) : null, $storeIds, [], null, 0, new ReportScope(null, 'UTC', $firstDayOfWeek, ['UTC']));
     }
 
     private function dataset(string $prefix = 'main'): Dataset
@@ -606,6 +735,7 @@ final class SelectBuilderTest extends TestCase
                 'customer_group_id' => $field('customer_group_id', FieldType::ID, $prefix . '.customer_group_id'),
                 'subtotal' => $field('subtotal', FieldType::MONEY, $prefix . '.base_subtotal'),
                 'is_new' => $field('is_new', FieldType::BOOLEAN, $prefix . '.is_new'),
+                'base_currency_code' => $field('base_currency_code', FieldType::STRING, $prefix . '.base_currency_code'),
                 'method' => $field('method', FieldType::STRING, 'payment.method', ['payment']),
                 'address' => $field('address', FieldType::STRING, 'billing.city', ['billing']),
                 'first_order' => new Field(

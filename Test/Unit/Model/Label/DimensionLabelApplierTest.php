@@ -10,6 +10,7 @@ use MageOS\AdvancedReport\Model\Definition\Dimension;
 use MageOS\AdvancedReport\Model\Label\DimensionLabelApplier;
 use MageOS\AdvancedReport\Model\Label\LabelResolverPool;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -138,7 +139,8 @@ final class DimensionLabelApplierTest extends TestCase
             [],
             [],
             null,
-            0
+            0,
+            new ReportScope(null, 'UTC', 0, ['UTC'])
         );
     }
 }

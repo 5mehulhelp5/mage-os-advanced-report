@@ -21,6 +21,48 @@ final class DateBucketSequenceTest extends TestCase
         $this->sequence = new DateBucketSequence();
     }
 
+    public function testItGenerates23HourlyKeysWithout0200OnTheSpringForwardDayInEuropeRome(): void
+    {
+        $keys = $this->sequence->generate($this->range('2026-03-29', '2026-03-29'), Granularity::HOUR, 0, ['Europe/Rome']);
+
+        self::assertCount(23, $keys);
+        self::assertNotContains('2026-03-29 02:00', $keys);
+        self::assertSame('2026-03-29 01:00', $keys[1]);
+        self::assertSame('2026-03-29 03:00', $keys[2]);
+    }
+
+    public function testItGenerates24HourlyKeysWith0200OnceOnTheFallBackDayInEuropeRome(): void
+    {
+        $keys = $this->sequence->generate($this->range('2026-10-25', '2026-10-25'), Granularity::HOUR, 0, ['Europe/Rome']);
+
+        self::assertCount(24, $keys);
+        self::assertSame(1, \count(array_keys($keys, '2026-10-25 02:00', true)));
+        self::assertSame('2026-10-25 23:00', $keys[23]);
+    }
+
+    public function testItGenerates24HourlyKeysOnARegularDay(): void
+    {
+        $keys = $this->sequence->generate($this->range('2026-03-10', '2026-03-10'), Granularity::HOUR, 0, ['Europe/Rome']);
+
+        self::assertCount(24, $keys);
+    }
+
+    public function testItUnionsHourlyKeysAcrossSeveralTimezonesInScope(): void
+    {
+        $keys = $this->sequence->generate(
+            $this->range('2026-03-29', '2026-03-29'),
+            Granularity::HOUR,
+            0,
+            ['Europe/Rome', 'UTC'],
+        );
+
+        self::assertCount(24, $keys);
+        self::assertContains('2026-03-29 02:00', $keys);
+        $sorted = $keys;
+        sort($sorted);
+        self::assertSame($sorted, $keys);
+    }
+
     public function testItGeneratesDayWeekMonthYearAndHourBucketKeysForARange(): void
     {
         $range = $this->range('2026-01-15', '2026-03-05');

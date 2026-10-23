@@ -154,7 +154,7 @@ class MysqlDataSource implements DataSourceInterface
         if (\count($fetched) > $fallback->rowCap) {
             array_pop($fetched);
             $warnings[] = (string) __(
-                'The database has no timezone tables and the report has too many hourly groups: '
+                'The database has no timezone tables and the report has too many time slots: '
                 . 'results were truncated. Narrow the date range or add filters.'
             );
         }
@@ -189,6 +189,7 @@ class MysqlDataSource implements DataSourceInterface
                     $bucket,
                     [],
                     $query->storeIds,
+                    $query->scope->firstDayOfWeek,
                     $fallback->storeColumn
                 );
                 $rows[$index]['dims_raw'][$code] = $single['rows'][0]['dims_raw'][$code];
@@ -201,6 +202,7 @@ class MysqlDataSource implements DataSourceInterface
             $mainBucket,
             array_map($query->dataset->getMetric(...), $query->metrics),
             $query->storeIds,
+            $query->scope->firstDayOfWeek,
             $fallback->storeColumn,
             $fallback->dropStoreColumn
         );
@@ -309,7 +311,8 @@ class MysqlDataSource implements DataSourceInterface
             $query->storeIds,
             $query->sort,
             $query->limit === null ? $max : min($query->limit, $max),
-            $query->offset
+            $query->offset,
+            $query->scope
         );
     }
 

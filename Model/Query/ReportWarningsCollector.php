@@ -13,7 +13,6 @@ use MageOS\AdvancedReport\Model\Definition\Dataset;
  * - a non-additive dimension is in use (its rows don't sum up to the totals);
  * - low cost coverage (below {@see LOW_COST_COVERAGE_THRESHOLD}) when a margin metric
  *   (`gross_margin`/`margin_pct`) is requested;
- * - the selected stores mix base currencies (amounts are never converted).
  */
 class ReportWarningsCollector
 {
@@ -23,10 +22,6 @@ class ReportWarningsCollector
      * @var string[]
      */
     private const array MARGIN_METRICS = ['gross_margin', 'margin_pct'];
-
-    public function __construct(private readonly BaseCurrencyChecker $baseCurrencyChecker)
-    {
-    }
 
     /**
      * @param string[] $requestedMetricCodes Originally requested metric codes (before adding
@@ -44,7 +39,6 @@ class ReportWarningsCollector
         return [
             ...$this->nonAdditiveDimensionWarnings($dataset, $request),
             ...$this->lowCostCoverageWarning($requestedMetricCodes, $costCoverage),
-            ...$this->mixedCurrencyWarning($request),
         ];
     }
 
@@ -85,22 +79,6 @@ class ReportWarningsCollector
             (string) new Phrase(
                 'Cost data is known for only %1% of the reported rows: margin metrics may be inaccurate.',
                 [round($costCoverage * 100, 1)],
-            ),
-        ];
-    }
-
-    /**
-     * @return string[]
-     */
-    private function mixedCurrencyWarning(ReportRequestInterface $request): array
-    {
-        if (!$this->baseCurrencyChecker->hasMixedCurrencies($request->getStoreIds())) {
-            return [];
-        }
-
-        return [
-            (string) new Phrase(
-                'The selected stores use different base currencies: amounts are not converted and totals may not be comparable.',
             ),
         ];
     }

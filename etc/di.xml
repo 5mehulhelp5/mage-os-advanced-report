@@ -2,6 +2,7 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
     <preference for="MageOS\AdvancedReport\Model\Query\ClockInterface" type="MageOS\AdvancedReport\Model\Query\Clock" />
     <preference for="MageOS\AdvancedReport\Api\Data\ReportResultInterface" type="MageOS\AdvancedReport\Model\Query\ReportResult" />
+    <preference for="MageOS\AdvancedReport\Model\DataSource\CurrencyProbeInterface" type="MageOS\AdvancedReport\Model\DataSource\Mysql\CurrencyProbe" />
     <preference for="MageOS\AdvancedReport\Api\ReportRunnerInterface" type="MageOS\AdvancedReport\Model\Query\ReportRunner" />
     <preference for="MageOS\AdvancedReport\Api\Data\SavedReportInterface" type="MageOS\AdvancedReport\Model\SavedReport\SavedReport" />
     <preference for="MageOS\AdvancedReport\Api\Data\SavedReportSearchResultsInterface" type="MageOS\AdvancedReport\Model\SavedReport\SavedReportSearchResults" />

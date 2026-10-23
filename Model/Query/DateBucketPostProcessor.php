@@ -53,6 +53,7 @@ class DateBucketPostProcessor
      *
      * @param array<int,array{dims: array<string,mixed>, dims_raw: array<string,mixed>, metrics: array<string,int|float|null>}> $rows
      * @param string[] $metricCodes
+     * @param string[] $timezones
      * @return array{rows: array<int,array{dims: array<string,mixed>, dims_raw: array<string,mixed>, metrics: array<string,int|float|null>}>, totalRowCount: int}
      */
     public function process(
@@ -62,6 +63,7 @@ class DateBucketPostProcessor
         array $metricCodes,
         ?ResolvedDateRange $range,
         int $firstDayOfWeek,
+        array $timezones = ['UTC'],
     ): array {
         $selection = $this->singleDimension($request)
             ?? throw new LogicException('process() called without a supported single date bucket dimension.');
@@ -91,6 +93,7 @@ class DateBucketPostProcessor
             $range,
             $granularity,
             $firstDayOfWeek,
+            $timezones,
         );
         $filled = $this->applyLabels($dataset, $selection->code, $filled);
 

@@ -23,6 +23,7 @@ use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Definition\Preset;
 use MageOS\AdvancedReport\Model\Definition\SourceMapping;
+use MageOS\AdvancedReport\Model\Query\BaseCurrencyChecker;
 use MageOS\AdvancedReport\Model\Query\ClockInterface;
 use MageOS\AdvancedReport\Model\Query\CompareMode;
 use MageOS\AdvancedReport\Model\Query\DateRange;
@@ -31,7 +32,10 @@ use MageOS\AdvancedReport\Model\Query\DateRangeType;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\FilterCondition;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
+use MageOS\AdvancedReport\Model\Query\MonetaryRequestDetector;
 use MageOS\AdvancedReport\Model\Query\ReportRequest;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
+use MageOS\AdvancedReport\Model\Query\ReportScopeResolver;
 use MageOS\AdvancedReport\Model\Query\RequestValidator;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use MageOS\AdvancedReport\Model\Security\DatasetAccess;
@@ -54,6 +58,8 @@ final class RequestValidatorTest extends TestCase
     private Config&Stub $config;
     private DatasetAccess&Stub $datasetAccess;
     private StoreManagerInterface&Stub $storeManager;
+    private MonetaryRequestDetector&Stub $monetaryDetector;
+    private BaseCurrencyChecker&Stub $currencyChecker;
     private RequestValidator $validator;
 
     protected function setUp(): void
@@ -71,6 +77,9 @@ final class RequestValidatorTest extends TestCase
         $this->storeManager = $this->createStub(StoreManagerInterface::class);
         $this->storeManager->method('getStores')->willReturn([1 => $store]);
 
+        $this->monetaryDetector = $this->createStub(MonetaryRequestDetector::class);
+        $this->currencyChecker = $this->createStub(BaseCurrencyChecker::class);
+
         $this->validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config);
     }
 
@@ -84,9 +93,18 @@ final class RequestValidatorTest extends TestCase
         AuthorizationInterface $authorization,
         Config $config,
         ?DatasetAccess $datasetAccess = null,
+        ?ClockInterface $clock = null,
+        ?ReportScopeResolver $scopeResolver = null,
+        ?BaseCurrencyChecker $currencyChecker = null,
     ): RequestValidator {
-        $clock = $this->createStub(ClockInterface::class);
-        $clock->method('today')->willReturn(new DateTimeImmutable(self::TODAY));
+        if ($clock === null) {
+            $clock = $this->createStub(ClockInterface::class);
+            $clock->method('today')->willReturn(new DateTimeImmutable(self::TODAY));
+        }
+        if ($scopeResolver === null) {
+            $scopeResolver = $this->createStub(ReportScopeResolver::class);
+            $scopeResolver->method('resolve')->willReturn(new ReportScope(null, 'UTC', 0, ['UTC']));
+        }
 
         return new RequestValidator(
             $definitionRegistry,
@@ -95,6 +113,9 @@ final class RequestValidatorTest extends TestCase
             $config,
             $datasetAccess ?? $this->datasetAccess,
             $this->storeManager,
+            $scopeResolver,
+            $this->monetaryDetector,
+            $currencyChecker ?? $this->currencyChecker,
         );
     }
 
@@ -371,6 +392,30 @@ final class RequestValidatorTest extends TestCase
         ));
     }
 
+    public function testItValidatesTheFirstOrderMaximumRangeWithTheReportScopeTimezone(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $scope = new ReportScope(null, 'Asia/Tokyo', 0, ['Asia/Tokyo']);
+        $clock = $this->createMock(ClockInterface::class);
+        $clock->expects(self::once())->method('today')->with('Asia/Tokyo')
+            ->willReturn(new DateTimeImmutable(self::TODAY));
+        $scopeResolver = $this->createMock(ReportScopeResolver::class);
+        $scopeResolver->expects(self::once())->method('resolve')->with([])->willReturn($scope);
+        $validator = $this->buildValidator(
+            $this->definitionRegistry,
+            $this->authorization,
+            $this->config,
+            null,
+            $clock,
+            $scopeResolver,
+        );
+
+        $validator->validate(self::buildRequest(
+            dimensions: [new DimensionSelection('customer_type')],
+            dateRange: new DateRange(DateRangeType::LAST_30_DAYS),
+        ));
+    }
+
     public function testItRejectsSourceOverrideWithoutConfigPermission(): void
     {
         $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
@@ -461,7 +506,10 @@ final class RequestValidatorTest extends TestCase
             $dateRangeResolver,
             $this->config,
             $this->datasetAccess,
-            $this->storeManager
+            $this->storeManager,
+            $this->createStub(ReportScopeResolver::class),
+            $this->monetaryDetector,
+            $this->currencyChecker,
         );
 
         // A day granularity over 400 days and a first_order field over 12 months would
@@ -552,6 +600,88 @@ final class RequestValidatorTest extends TestCase
     }
 
     /**
+     * @param int[] $storeIds
+     * @param string[] $currencies
+     */
+    private function givenMixedCurrencies(array $storeIds, array $currencies, bool $monetary = true): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->monetaryDetector->method('isMonetary')->willReturn($monetary);
+        $this->currencyChecker->method('hasMixedCurrencies')->willReturn(true);
+        $this->currencyChecker->method('getCurrencyCodes')->willReturn($currencies);
+    }
+
+    public function testItRejectsAMonetaryRequestWhoseSelectedStoresHaveDifferentBaseCurrencies(): void
+    {
+        $this->givenMixedCurrencies([1], ['EUR', 'USD']);
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(metricCodes: ['net_sales'], storeIds: [1]));
+    }
+
+    public function testItRejectsAMonetaryRequestForAllStoresWhenWebsitesHaveDifferentBaseCurrencies(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->monetaryDetector->method('isMonetary')->willReturn(true);
+        $checker = $this->createMock(BaseCurrencyChecker::class);
+        $checker->expects(self::once())->method('hasMixedCurrencies')->with([])->willReturn(true);
+        $checker->method('getCurrencyCodes')->willReturn(['EUR', 'USD']);
+        $validator = $this->buildValidator(
+            $this->definitionRegistry,
+            $this->authorization,
+            $this->config,
+            currencyChecker: $checker,
+        );
+
+        $this->expectException(InvalidRequestException::class);
+
+        $validator->validate(self::buildRequest(metricCodes: ['net_sales']));
+    }
+
+    public function testItAcceptsANonMonetaryRequestWhoseSelectedStoresHaveDifferentBaseCurrencies(): void
+    {
+        $this->givenMixedCurrencies([1], ['EUR', 'USD'], false);
+
+        $this->validator->validate(self::buildRequest(storeIds: [1]));
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testItAcceptsAMonetaryRequestOnADatasetWithoutAStoreField(): void
+    {
+        $this->givenMixedCurrencies([], ['EUR', 'USD']);
+        $this->definitionRegistry = $this->createStub(DefinitionRegistry::class);
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset(false));
+        $validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config);
+
+        $validator->validate(self::buildRequest(metricCodes: ['net_sales']));
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testItListsTheDistinctBaseCurrenciesInTheRejectionMessage(): void
+    {
+        $this->givenMixedCurrencies([1], ['EUR', 'USD']);
+
+        try {
+            $this->validator->validate(self::buildRequest(metricCodes: ['net_sales'], storeIds: [1]));
+            self::fail('Expected InvalidRequestException');
+        } catch (InvalidRequestException $e) {
+            self::assertStringContainsString('(EUR, USD)', $e->getMessage());
+        }
+    }
+
+    public function testItAppliesTheCurrencyRuleWhenValidatingWithoutAclChecks(): void
+    {
+        $this->givenMixedCurrencies([1], ['EUR', 'USD']);
+
+        $this->expectException(InvalidRequestException::class);
+
+        $this->validator->validate(self::buildRequest(metricCodes: ['net_sales'], storeIds: [1]), false);
+    }
+
+    /**
      * @param string[] $metricCodes
      */
     private static function requestWithMetrics(array $metricCodes): ReportRequest
@@ -604,7 +734,7 @@ final class RequestValidatorTest extends TestCase
         );
     }
 
-    private static function salesOrdersDataset(): Dataset
+    private static function salesOrdersDataset(bool $withStoreField = true): Dataset
     {
         $fields = [
             'order_id' => new Field('order_id', 'Order ID', FieldType::ID, [
@@ -626,6 +756,12 @@ final class RequestValidatorTest extends TestCase
                 'mysql' => new SourceMapping(expressionProvider: 'first_order'),
             ]),
         ];
+
+        if ($withStoreField) {
+            $fields['store_id'] = new Field('store_id', 'Store', FieldType::ID, [
+                'mysql' => new SourceMapping(expression: 'main.store_id'),
+            ]);
+        }
 
         $metrics = [
             'orders' => new Metric(

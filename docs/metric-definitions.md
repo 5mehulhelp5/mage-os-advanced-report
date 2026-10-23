@@ -14,14 +14,15 @@ values) but do not assert a hand-computed value for it yet; each is tracked in t
 ## Conventions shared by all datasets
 
 - **Currency**: every amount is in the **base currency of the order's store** (`base_*` columns). No conversion is
-  applied; mixing stores with different base currencies is a known limit (R13, p1d).
+  applied; monetary reports over several base currencies are rejected. See
+  [time and currency](time-and-currency.md#currency).
 - **Counted statuses**: the order datasets (`sales_orders`, `customer_orders`, `sales_items`) apply the implicit
   `counted_status` filter. Config `mageos_advancedreport/sales/counted_statuses` is a comma-separated list of order
   status codes; empty (default) means every status except `canceled`. Pinned per test method with `#[Config]`.
   Counting `canceled` is possible: the order still counts in `orders`, but its monetary and unit components are
   netted to 0 by the cancel-aware formulas below.
-- **Date attribution**: the report date is the order `created_at`, converted to the store timezone (read at website
-  scope) before bucketing. Refunds, shipments and credit memos are attributed to the **order date**, not their own
+- **Date attribution**: the report date is the order `created_at`, converted to the store timezone before bucketing
+  (rules in [time and currency](time-and-currency.md#timezone)). Refunds, shipments and credit memos are attributed to the **order date**, not their own
   date (R04, R05): a past period changes when an order is later refunded or shipped.
 - **Grain**: one row per order (`sales_orders`, `customer_orders`), per top-level order item (`sales_items`), per
   customer account (`customers`), per source item (`catalog_stock`), per SKU and stock (`catalog_salable`).

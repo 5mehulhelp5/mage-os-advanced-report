@@ -13,12 +13,14 @@ use Magento\Framework\Phrase;
  * - {@see FIELD_CREATED_AT}: date-range filter and date buckets, required unless dateless.
  * - {@see FIELD_STORE_ID}: store scope filter and per-store timezone; optional.
  * - {@see FIELD_STATUS}: order status, backs the "counted_status" implicit filter.
+ * - {@see FIELD_BASE_CURRENCY}: the order's base currency code; optional, used to reject mixed-currency monetary requests.
  */
 final readonly class Dataset
 {
     public const string FIELD_CREATED_AT = 'created_at';
     public const string FIELD_STORE_ID = 'store_id';
     public const string FIELD_STATUS = 'status';
+    public const string FIELD_BASE_CURRENCY = 'base_currency_code';
 
     /**
      * @param string $code

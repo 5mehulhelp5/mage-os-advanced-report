@@ -10,6 +10,7 @@ use MageOS\AdvancedReport\Model\Query\DateRange;
 use MageOS\AdvancedReport\Model\Query\DateRangeResolver;
 use MageOS\AdvancedReport\Model\Query\DateRangeType;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -24,8 +25,11 @@ final class DateRangeResolverTest extends TestCase
 
     private DateRangeResolver $resolver;
 
+    private ReportScope $scope;
+
     protected function setUp(): void
     {
+        $this->scope = new ReportScope(1, 'UTC', 0, ['UTC']);
         $clock = $this->createStub(ClockInterface::class);
         $clock->method('today')->willReturn(new DateTimeImmutable(self::TODAY));
 
@@ -53,7 +57,7 @@ final class DateRangeResolverTest extends TestCase
         string $expectedFrom,
         string $expectedTo,
     ): void {
-        $resolved = $this->resolver->resolve(new DateRange($type));
+        $resolved = $this->resolver->resolve(new DateRange($type), $this->scope);
 
         self::assertSame($expectedFrom, $resolved->from->format('Y-m-d'));
         self::assertSame($expectedTo, $resolved->to->format('Y-m-d'));
@@ -61,7 +65,7 @@ final class DateRangeResolverTest extends TestCase
 
     public function testItResolvesCustomRangesInclusively(): void
     {
-        $resolved = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-05', '2026-01-10'));
+        $resolved = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-05', '2026-01-10'), $this->scope);
 
         self::assertSame('2026-01-05', $resolved->from->format('Y-m-d'));
         self::assertSame('2026-01-10', $resolved->to->format('Y-m-d'));
@@ -70,9 +74,9 @@ final class DateRangeResolverTest extends TestCase
 
     public function testItComputesThePreviousPeriodWithTheSameNumberOfDays(): void
     {
-        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-10', '2026-01-14'));
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-10', '2026-01-14'), $this->scope);
 
-        $previous = $this->resolver->previousPeriod($range);
+        $previous = $this->resolver->previousPeriod($range, $this->scope);
 
         self::assertSame('2026-01-05', $previous->range->from->format('Y-m-d'));
         self::assertSame('2026-01-09', $previous->range->to->format('Y-m-d'));
@@ -82,9 +86,9 @@ final class DateRangeResolverTest extends TestCase
 
     public function testItComputesThePreviousYearAndClampsFebruary29(): void
     {
-        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-02-29', '2024-02-29'));
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-02-29', '2024-02-29'), $this->scope);
 
-        $previous = $this->resolver->previousYear($range);
+        $previous = $this->resolver->previousYear($range, $this->scope);
 
         self::assertSame('2023-02-28', $previous->range->from->format('Y-m-d'));
         self::assertSame('2023-02-28', $previous->range->to->format('Y-m-d'));
@@ -93,9 +97,10 @@ final class DateRangeResolverTest extends TestCase
 
     public function testItFlagsRangesThatIncludeToday(): void
     {
-        $includesToday = $this->resolver->resolve(new DateRange(DateRangeType::LAST_7_DAYS));
+        $includesToday = $this->resolver->resolve(new DateRange(DateRangeType::LAST_7_DAYS), $this->scope);
         $doesNotIncludeToday = $this->resolver->resolve(
-            new DateRange(DateRangeType::CUSTOM, '2026-01-01', '2026-01-05')
+            new DateRange(DateRangeType::CUSTOM, '2026-01-01', '2026-01-05'),
+            $this->scope
         );
 
         self::assertTrue($includesToday->includesToday);
@@ -106,6 +111,33 @@ final class DateRangeResolverTest extends TestCase
     {
         $this->expectException(InvalidRequestException::class);
 
-        $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-10', '2026-01-05'));
+        $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-01-10', '2026-01-05'), $this->scope);
+    }
+
+    public function testItResolvesRelativeDateRangesWithTheReportScopeTimezone(): void
+    {
+        $clock = $this->createMock(ClockInterface::class);
+        $clock->expects(self::atLeastOnce())->method('today')->with('Asia/Tokyo')
+            ->willReturn(new DateTimeImmutable(self::TODAY));
+        $resolver = new DateRangeResolver($clock);
+        $scope = new ReportScope(null, 'Asia/Tokyo', 0, ['Asia/Tokyo']);
+
+        $range = $resolver->resolve(new DateRange(DateRangeType::LAST_7_DAYS), $scope);
+        $resolver->previousPeriod($range, $scope);
+
+        self::assertSame('2026-03-15', $range->to->format('Y-m-d'));
+    }
+
+    public function testItFlagsACustomRangeContainingTheLocalTodayAsIncludingTodayInANonUtcScope(): void
+    {
+        // Local today is already 2026-03-16 in the scope timezone, as midnight in the default zone.
+        $clock = $this->createStub(ClockInterface::class);
+        $clock->method('today')->willReturn(new DateTimeImmutable('2026-03-16'));
+        $resolver = new DateRangeResolver($clock);
+        $scope = new ReportScope(1, 'Asia/Tokyo', 0, ['Asia/Tokyo']);
+
+        $resolved = $resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2026-03-16', '2026-03-16'), $scope);
+
+        self::assertTrue($resolved->includesToday);
     }
 }

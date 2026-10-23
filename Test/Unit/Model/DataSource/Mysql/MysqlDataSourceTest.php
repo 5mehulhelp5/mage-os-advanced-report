@@ -31,6 +31,7 @@ use MageOS\AdvancedReport\Model\Label\LabelResolverPool;
 use MageOS\AdvancedReport\Model\Query\DerivedMetricCalculator;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\FilterCondition;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -363,7 +364,7 @@ final class MysqlDataSourceTest extends TestCase
     {
         $this->selectBuilder->method('hasDateBucketDimension')->willReturn(true);
         $this->selectBuilder->method('buildUtcHourFallback')->willReturn(
-            new UtcHourFallbackSelect($this->select('FALLBACK'), ['created_at'], 5000, 'utc_hour', null, false)
+            new UtcHourFallbackSelect($this->select('FALLBACK'), ['created_at'], 5000, 'utc_hour', null, false, 60)
         );
         $this->selectBuilder->method('buildTotals')->willReturn($this->select('TOTALS'));
         $this->dimensionBuilder->method('getBucket')->willReturn('day');
@@ -448,7 +449,8 @@ final class MysqlDataSourceTest extends TestCase
             $storeIds,
             $sort,
             $limit,
-            $offset
+            $offset,
+            new ReportScope(null, 'UTC', 0, ['UTC'])
         );
     }
 

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql;
 
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\Config;
@@ -49,14 +48,14 @@ final class TimezoneStrategyTest extends TestCase
         self::assertStringNotContainsString(':', $sql);
     }
 
-    public function testItBuildsWeekBucketsHonoringTheConfiguredFirstDayOfWeek(): void
+    public function testItBuildsTheWeekBucketExpressionWithTheFirstDayOfWeekPassedIn(): void
     {
-        $strategy = $this->build([1 => 'UTC'], '1');
+        $strategy = $this->build([1 => 'UTC']);
         $x = "CONVERT_TZ(c, 'UTC', 'UTC')";
 
         self::assertSame(
             "DATE_SUB(DATE($x), INTERVAL (DAYOFWEEK($x) - 1 - 1 + 7) % 7 DAY)",
-            $strategy->bucket('week', 'c', 's', [1])
+            $strategy->bucket('week', 'c', 's', [1], 1)
         );
     }
 
@@ -65,19 +64,23 @@ final class TimezoneStrategyTest extends TestCase
         $strategy = $this->build([1 => 'UTC']);
         $x = "CONVERT_TZ(c, 'UTC', 'UTC')";
 
-        self::assertSame("DATE_FORMAT($x, '%Y-%m-%d %H:00')", $strategy->bucket('hour', 'c', 's', [1]));
-        self::assertSame("DATE($x)", $strategy->bucket('day', 'c', 's', [1]));
-        self::assertSame("DATE_FORMAT($x, '%Y-%m')", $strategy->bucket('month', 'c', 's', [1]));
-        self::assertSame("YEAR($x)", $strategy->bucket('year', 'c', 's', [1]));
-        self::assertSame("HOUR($x)", $strategy->bucket('hour_of_day', 'c', 's', [1]));
-        self::assertSame("(DAYOFWEEK($x) - 1)", $strategy->bucket('weekday', 'c', 's', [1]));
-        self::assertSame("DATE_FORMAT(c, '%Y-%m-%d %H:00:00')", $strategy->utcHour('c'));
+        self::assertSame("DATE_FORMAT($x, '%Y-%m-%d %H:00')", $strategy->bucket('hour', 'c', 's', [1], 0));
+        self::assertSame("DATE($x)", $strategy->bucket('day', 'c', 's', [1], 0));
+        self::assertSame("DATE_FORMAT($x, '%Y-%m')", $strategy->bucket('month', 'c', 's', [1], 0));
+        self::assertSame("YEAR($x)", $strategy->bucket('year', 'c', 's', [1], 0));
+        self::assertSame("HOUR($x)", $strategy->bucket('hour_of_day', 'c', 's', [1], 0));
+        self::assertSame("(DAYOFWEEK($x) - 1)", $strategy->bucket('weekday', 'c', 's', [1], 0));
+        self::assertSame("DATE_FORMAT(c, '%Y-%m-%d %H:00:00')", $strategy->utcSlot('c', 60));
+        self::assertSame(
+            "CONCAT(DATE_FORMAT(c, '%Y-%m-%d %H:'), LPAD(FLOOR(MINUTE(c) / 15) * 15, 2, '0'), ':00')",
+            $strategy->utcSlot('c', 15)
+        );
     }
 
     /**
      * @param array<int,string> $timezones
      */
-    private function build(array $timezones, string $firstDay = '0'): TimezoneStrategy
+    private function build(array $timezones): TimezoneStrategy
     {
         $map = $this->createStub(StoreTimezoneMap::class);
         $map->method('getTimezonesForStores')->willReturn($timezones);
@@ -87,15 +90,12 @@ final class TimezoneStrategyTest extends TestCase
         $resource->method('getConnectionByName')->willReturn($adapter);
         $config = $this->createStub(Config::class);
         $config->method('getConnectionName')->willReturn('default');
-        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
-        $scopeConfig->method('getValue')->willReturn($firstDay);
 
         return new TimezoneStrategy(
             $map,
             $this->createStub(TimezoneSupportDetector::class),
             $resource,
-            $config,
-            $scopeConfig
+            $config
         );
     }
 }

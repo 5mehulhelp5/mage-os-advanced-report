@@ -58,7 +58,9 @@ interface ReportResultInterface
     public function getComparisonRange(): ?ResolvedDateRange;
 
     /**
-     * Base currency of the scope (first website in scope).
+     * Base currency of the report: the single base currency found in the orders of the period
+     * (monetary requests), otherwise the configured base currency of the scope, or an empty string
+     * when the scope mixes currencies.
      */
     public function getCurrencyCode(): string;
 

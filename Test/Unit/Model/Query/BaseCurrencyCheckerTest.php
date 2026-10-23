@@ -8,6 +8,10 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
+use MageOS\AdvancedReport\Model\Definition\Dataset;
+use MageOS\AdvancedReport\Model\Definition\Field;
+use MageOS\AdvancedReport\Model\Definition\FieldType;
+use MageOS\AdvancedReport\Model\Definition\SourceMapping;
 use MageOS\AdvancedReport\Model\Query\BaseCurrencyChecker;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -47,13 +51,67 @@ final class BaseCurrencyCheckerTest extends TestCase
         ];
     }
 
-    public function testItReturnsTheBaseCurrencyOfTheFirstWebsiteInScope(): void
+    public function testItListsTheDistinctSortedBaseCurrencies(): void
     {
-        $storeManager = $this->buildStoreManager([5 => 10, 6 => 20]);
-        $scopeConfig = $this->buildScopeConfig([10 => 'EUR', 20 => 'USD']);
-        $checker = new BaseCurrencyChecker($storeManager, $scopeConfig);
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20, 3 => 30]),
+            $this->buildScopeConfig([10 => 'USD', 20 => 'EUR', 30 => 'USD'])
+        );
 
-        self::assertSame('EUR', $checker->getCurrencyCode([5, 6]));
+        self::assertSame(['EUR', 'USD'], $checker->getCurrencyCodes([1, 2, 3]));
+    }
+
+    public function testItResolvesTheDefaultScopeBaseCurrencyForDatasetsWithoutAStoreField(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->expects(self::once())->method('getValue')
+            ->with('currency/options/base')->willReturn('GBP');
+        $checker = new BaseCurrencyChecker($this->buildStoreManager([1 => 10]), $scopeConfig);
+
+        self::assertSame('GBP', $checker->resolveCurrencyCode($this->buildDataset(false), [1]));
+    }
+
+    public function testItResolvesTheSingleBaseCurrencyInScope(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20]),
+            $this->buildScopeConfig([10 => 'EUR', 20 => 'EUR'])
+        );
+
+        self::assertSame('EUR', $checker->resolveCurrencyCode($this->buildDataset(true), [1, 2]));
+    }
+
+    public function testItResolvesAnEmptyCurrencyWhenTheScopeMixesCurrencies(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20]),
+            $this->buildScopeConfig([10 => 'EUR', 20 => 'USD'])
+        );
+
+        self::assertSame('', $checker->resolveCurrencyCode($this->buildDataset(true), [1, 2]));
+    }
+
+    private function buildDataset(bool $withStoreField): Dataset
+    {
+        $fields = $withStoreField
+            ? ['store_id' => new Field('store_id', 'Store', FieldType::ID, ['mysql' => new SourceMapping(expression: 'main.store_id')])]
+            : [];
+
+        return new Dataset(
+            code: 'sales_orders',
+            label: 'Orders',
+            aclResource: 'MageOS_AdvancedReport::sales',
+            area: 'sales',
+            dateless: false,
+            baseTable: 'sales_order',
+            baseAlias: 'main',
+            baseProvider: null,
+            implicitFilters: [],
+            fields: $fields,
+            joins: [],
+            metrics: [],
+            dimensions: [],
+        );
     }
 
     /**

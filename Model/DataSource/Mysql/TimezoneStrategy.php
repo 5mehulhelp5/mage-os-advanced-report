@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
 use InvalidArgumentException;
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
@@ -18,14 +17,14 @@ use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
  */
 class TimezoneStrategy
 {
-    private const string XML_PATH_FIRST_DAY = 'general/locale/firstday';
+    public const int HOUR_SLOT_MINUTES = 60;
+    public const int QUARTER_HOUR_SLOT_MINUTES = 15;
 
     public function __construct(
         private readonly StoreTimezoneMap $timezoneMap,
         private readonly TimezoneSupportDetector $detector,
         private readonly ResourceConnection $resourceConnection,
         private readonly Config $config,
-        private readonly ScopeConfigInterface $scopeConfig,
     ) {
     }
 
@@ -58,9 +57,15 @@ class TimezoneStrategy
     /**
      * @param string $bucket hour|day|week|month|year|hour_of_day|weekday
      * @param int[] $storeIds
+     * @param int $firstDayOfWeek 0 (Sunday) to 6 (Saturday), used by the week bucket.
      */
-    public function bucket(string $bucket, string $createdAt, string $storeIdExpr, array $storeIds): string
-    {
+    public function bucket(
+        string $bucket,
+        string $createdAt,
+        string $storeIdExpr,
+        array $storeIds,
+        int $firstDayOfWeek,
+    ): string {
         $x = $this->localDateTime($createdAt, $storeIdExpr, $storeIds);
 
         return match ($bucket) {
@@ -69,7 +74,7 @@ class TimezoneStrategy
             'week' => \sprintf(
                 'DATE_SUB(DATE(%1$s), INTERVAL (DAYOFWEEK(%1$s) - 1 - %2$d + 7) %% 7 DAY)',
                 $x,
-                $this->getFirstDay()
+                $firstDayOfWeek % 7
             ),
             'month' => \sprintf("DATE_FORMAT(%s, '%%Y-%%m')", $x),
             'year' => \sprintf('YEAR(%s)', $x),
@@ -80,10 +85,18 @@ class TimezoneStrategy
     }
 
     /**
-     * Fallback grouping used when the database cannot convert named timezones.
+     * Fallback grouping used when the database cannot convert named timezones: the UTC slot
+     * (`Y-m-d H:i:00`) of the given size (60 or 15 minutes) the datetime falls in.
      */
-    public function utcHour(string $createdAt): string
+    public function utcSlot(string $createdAt, int $slotMinutes): string
     {
+        if ($slotMinutes === self::QUARTER_HOUR_SLOT_MINUTES) {
+            return \sprintf(
+                "CONCAT(DATE_FORMAT(%1\$s, '%%Y-%%m-%%d %%H:'), LPAD(FLOOR(MINUTE(%1\$s) / 15) * 15, 2, '0'), ':00')",
+                $createdAt
+            );
+        }
+
         return \sprintf("DATE_FORMAT(%s, '%%Y-%%m-%%d %%H:00:00')", $createdAt);
     }
 
@@ -92,10 +105,5 @@ class TimezoneStrategy
         $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
 
         return \sprintf("CONVERT_TZ(%s, 'UTC', %s)", $createdAt, $connection->quote($timezone));
-    }
-
-    private function getFirstDay(): int
-    {
-        return ((int) $this->scopeConfig->getValue(self::XML_PATH_FIRST_DAY)) % 7;
     }
 }

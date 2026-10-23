@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\Timezone;
 
 use DateTimeImmutable;
-use DateTimeZone;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\ScopeInterface;
@@ -114,12 +113,16 @@ final class StoreTimezoneMapTest extends TestCase
         );
     }
 
-    public function testItDetectsNonWholeHourOffsets(): void
+    public function testItRequiresQuarterHourSlotsOnlyWhenARangeOffsetIsNotWholeHours(): void
     {
-        $map = $this->map([1 => 'Europe/Rome', 2 => 'Asia/Kolkata']);
-        $at = new DateTimeImmutable('2025-01-10', new DateTimeZone('UTC'));
+        $map = $this->map([1 => 'Europe/Rome', 2 => 'Asia/Kolkata', 3 => 'Australia/Lord_Howe']);
+        $range = $this->range('2025-01-10', '2025-01-12');
 
-        self::assertFalse($map->hasNonWholeHourOffset([1], $at));
-        self::assertTrue($map->hasNonWholeHourOffset([1, 2], $at));
+        self::assertFalse($map->requiresQuarterHourSlots([1], $range));
+        self::assertTrue($map->requiresQuarterHourSlots([1, 2], $range));
+        self::assertFalse($map->requiresQuarterHourSlots([3], $range));
+        self::assertTrue($map->requiresQuarterHourSlots([3], $this->range('2025-04-01', '2025-04-10')));
+        self::assertFalse($map->requiresQuarterHourSlots([1], null));
+        self::assertTrue($map->requiresQuarterHourSlots([2], null));
     }
 }

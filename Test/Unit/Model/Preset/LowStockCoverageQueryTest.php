@@ -16,6 +16,7 @@ use MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -254,6 +255,7 @@ final class LowStockCoverageQueryTest extends TestCase
             [],
             null,
             0,
+            new ReportScope(null, 'UTC', 0, ['UTC']),
         );
     }
 }

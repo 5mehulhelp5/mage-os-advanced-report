@@ -18,6 +18,8 @@ use MageOS\AdvancedReport\Model\Query\DateRangeResolver;
 use MageOS\AdvancedReport\Model\Query\DateRangeType;
 use MageOS\AdvancedReport\Model\Query\DerivedMetricCalculator;
 use MageOS\AdvancedReport\Model\Query\QueryPlanner;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
+use MageOS\AdvancedReport\Model\Query\ReportScopeResolver;
 use MageOS\AdvancedReport\Model\Query\RequestValidator;
 use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
@@ -61,6 +63,7 @@ final class QueryPlannerTest extends TestCase
             $this->definitionRegistry,
             $dateRangeResolver,
             new DerivedMetricCalculator(),
+            $this->scopeResolver(),
         );
 
         $plan = $planner->plan($request);
@@ -70,6 +73,43 @@ final class QueryPlannerTest extends TestCase
         self::assertInstanceOf(ResolvedQuery::class, $plan['comparison']);
         self::assertSame(['revenue', 'orders'], $plan['comparison']->metrics);
         self::assertSame($comparisonRange, $plan['comparison']->dateRange);
+    }
+
+    public function testItSetsTheResolvedReportScopeOnTheMainAndComparisonQueries(): void
+    {
+        $range = new ResolvedDateRange(new DateTimeImmutable('2026-09-01'), new DateTimeImmutable('2026-09-25'), true, 25);
+        $comparisonPeriod = new ComparisonPeriod($range, new DateInterval('P25D'));
+        $scope = new ReportScope(5, 'Asia/Tokyo', 1, ['Asia/Tokyo']);
+
+        $scopeResolver = $this->createMock(ReportScopeResolver::class);
+        $scopeResolver->expects(self::once())->method('resolve')->with([])->willReturn($scope);
+        $dateRangeResolver = $this->createMock(DateRangeResolver::class);
+        $dateRangeResolver->expects(self::once())->method('resolve')->with(self::anything(), $scope)->willReturn($range);
+        $dateRangeResolver->expects(self::once())->method('previousPeriod')->with($range, $scope)
+            ->willReturn($comparisonPeriod);
+
+        $planner = new QueryPlanner(
+            $this->createStub(RequestValidator::class),
+            $this->definitionRegistry,
+            $dateRangeResolver,
+            new DerivedMetricCalculator(),
+            $scopeResolver,
+        );
+
+        $plan = $planner->plan($this->buildRequest(metrics: ['revenue'], compareTo: CompareMode::PREVIOUS_PERIOD));
+
+        $comparison = $plan['comparison'];
+        self::assertNotNull($comparison);
+        self::assertSame($scope, $plan['main']->scope);
+        self::assertSame($scope, $comparison->scope);
+    }
+
+    private function scopeResolver(): ReportScopeResolver
+    {
+        $resolver = $this->createStub(ReportScopeResolver::class);
+        $resolver->method('resolve')->willReturn(new ReportScope(null, 'UTC', 0, ['UTC']));
+
+        return $resolver;
     }
 
     public function testItPlansARequestWithoutAclChecksForTrustedCallers(): void
@@ -88,6 +128,7 @@ final class QueryPlannerTest extends TestCase
             $this->definitionRegistry,
             $dateRangeResolver,
             new DerivedMetricCalculator(),
+            $this->scopeResolver(),
         );
 
         $planner->plan($request, false);

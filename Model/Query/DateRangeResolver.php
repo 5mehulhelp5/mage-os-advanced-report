@@ -11,8 +11,7 @@ use Magento\Framework\Phrase;
  * Resolves a {@see DateRange} request into a concrete, inclusive local-date interval.
  *
  * "Today" comes from the injected {@see ClockInterface} so relative ranges resolve
- * deterministically in tests. Week-start (`general/locale/firstday`) is not used here,
- * it only affects grouping.
+ * deterministically in tests, in the timezone of the {@see ReportScope}.
  */
 class DateRangeResolver
 {
@@ -23,9 +22,9 @@ class DateRangeResolver
     /**
      * @throws InvalidRequestException when the resolved range has "from" after "to"
      */
-    public function resolve(DateRange $dateRange): ResolvedDateRange
+    public function resolve(DateRange $dateRange, ReportScope $scope): ResolvedDateRange
     {
-        $today = $this->clock->today();
+        $today = $this->clock->today($scope->timezone);
 
         [$from, $to] = match ($dateRange->type) {
             DateRangeType::TODAY => [$today, $today],
@@ -49,24 +48,25 @@ class DateRangeResolver
     /**
      * The period of the same length immediately preceding `$range->from`.
      */
-    public function previousPeriod(ResolvedDateRange $range): ComparisonPeriod
+    public function previousPeriod(ResolvedDateRange $range, ReportScope $scope): ComparisonPeriod
     {
         $to = $range->from->modify('-1 day');
         $from = $to->modify(\sprintf('-%d days', $range->days - 1));
 
-        return $this->toComparisonPeriod($from, $to, $range);
+        return $this->toComparisonPeriod($from, $to, $range, $scope);
     }
 
     /**
      * The same dates one year before `$range`, clamping 29 February onto 28 February in
      * non-leap target years.
      */
-    public function previousYear(ResolvedDateRange $range): ComparisonPeriod
+    public function previousYear(ResolvedDateRange $range, ReportScope $scope): ComparisonPeriod
     {
         return $this->toComparisonPeriod(
             $this->subtractYear($range->from),
             $this->subtractYear($range->to),
             $range,
+            $scope,
         );
     }
 
@@ -100,8 +100,9 @@ class DateRangeResolver
         DateTimeImmutable $from,
         DateTimeImmutable $to,
         ResolvedDateRange $range,
+        ReportScope $scope,
     ): ComparisonPeriod {
-        $comparisonRange = $this->build($from, $to, $this->clock->today());
+        $comparisonRange = $this->build($from, $to, $this->clock->today($scope->timezone));
 
         return new ComparisonPeriod($comparisonRange, $comparisonRange->from->diff($range->from));
     }

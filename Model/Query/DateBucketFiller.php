@@ -34,6 +34,7 @@ class DateBucketFiller
      *
      * @param array<int,array{dims: array<string,mixed>, dims_raw: array<string,mixed>, metrics: array<string,int|float|null>}> $rows
      * @param string[] $metricCodes
+     * @param string[] $timezones
      * @return array<int,array{dims: array<string,mixed>, dims_raw: array<string,mixed>, metrics: array<string,int|float|null>}>
      */
     public function fillDateBuckets(
@@ -44,8 +45,9 @@ class DateBucketFiller
         ResolvedDateRange $range,
         Granularity $granularity,
         int $firstDayOfWeek = 0,
+        array $timezones = ['UTC'],
     ): array {
-        $keys = $this->bucketSequence->generate($range, $granularity, $firstDayOfWeek);
+        $keys = $this->bucketSequence->generate($range, $granularity, $firstDayOfWeek, $timezones);
 
         return $this->fill($dataset, $rows, $dimensionCode, $metricCodes, $keys);
     }

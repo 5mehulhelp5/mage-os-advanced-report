@@ -105,29 +105,79 @@ class SelectBuilder
             $rowCap,
             self::UTC_HOUR_COLUMN,
             $multiple ? self::STORE_COLUMN : null,
-            $multiple && !$storeIsDimension
+            $multiple && !$storeIsDimension,
+            $this->slotMinutes($query)
         );
+    }
+
+    private function slotMinutes(ResolvedQuery $query): int
+    {
+        return $this->timezoneMap->requiresQuarterHourSlots($query->storeIds, $query->dateRange)
+            ? TimezoneStrategy::QUARTER_HOUR_SLOT_MINUTES
+            : TimezoneStrategy::HOUR_SLOT_MINUTES;
     }
 
     private function buildSelect(ResolvedQuery $query, bool $utcHourFallback): Select
     {
         $connection = $this->getConnection();
-        $dataset = $query->dataset;
+        $select = $this->buildFiltered($query, $this->collectFieldCodes($query), $connection);
+        $this->applyColumns($select, $query, $connection, $utcHourFallback);
 
+        return $select;
+    }
+
+    /**
+     * FROM, joins for the given field codes, date/store scope, implicit and user filters.
+     *
+     * @param ResolvedQuery $query
+     * @param string[] $fieldCodes
+     * @param AdapterInterface $connection
+     */
+    private function buildFiltered(ResolvedQuery $query, array $fieldCodes, AdapterInterface $connection): Select
+    {
+        $dataset = $query->dataset;
         $select = $connection->select();
         $select->from([$this->baseAlias($dataset) => $this->baseSource($dataset, $connection)], []);
-        foreach ($this->joinRegistry->resolve($dataset, $this->collectFieldCodes($query)) as $join) {
+        foreach ($this->joinRegistry->resolve($dataset, $fieldCodes) as $join) {
             $select->joinLeft(
                 [$join->alias => $this->resourceConnection->getTableName($join->table)],
                 $join->condition,
                 []
             );
         }
-
         $this->applyFilters($select, $query, $connection);
-        $this->applyColumns($select, $query, $connection, $utcHourFallback);
 
         return $select;
+    }
+
+    /**
+     * Probe for the distinct order base currencies inside the exact scope of the query: same FROM,
+     * date/store scope, implicit and user filters, selecting only `DISTINCT base_currency_code LIMIT 2`.
+     * Only the joins needed by scope, filters and the currency field are added.
+     *
+     * @param ResolvedQuery $query
+     */
+    public function buildCurrencyProbe(ResolvedQuery $query): Select
+    {
+        $connection = $this->getConnection();
+        $dataset = $query->dataset;
+        $codes = $this->implicitFilterPool->getFieldCodes($dataset);
+        foreach ([Dataset::FIELD_CREATED_AT, Dataset::FIELD_STORE_ID] as $reserved) {
+            if ($dataset->hasField($reserved)) {
+                $codes[] = $reserved;
+            }
+        }
+        $codes[] = Dataset::FIELD_BASE_CURRENCY;
+        foreach ($query->filters as $filter) {
+            $codes[] = $filter->field;
+        }
+
+        $select = $this->buildFiltered($query, array_values(array_unique($codes)), $connection);
+        $select->columns([Dataset::FIELD_BASE_CURRENCY => new Expression(
+            $this->fieldExpressionResolver->resolve($dataset, Dataset::FIELD_BASE_CURRENCY, $connection)
+        )]);
+
+        return $select->distinct(true)->limit(2);
     }
 
     /**
@@ -146,7 +196,8 @@ class SelectBuilder
             $query->storeIds,
             [],
             null,
-            0
+            0,
+            $query->scope
         ));
     }
 
@@ -234,7 +285,8 @@ class SelectBuilder
                 $query->dataset,
                 $selection,
                 $query->storeIds,
-                $connection
+                $connection,
+                $query->scope->firstDayOfWeek
             ));
             $select->group($selection->code);
         }
@@ -259,8 +311,9 @@ class SelectBuilder
             return [];
         }
         $dataset = $query->dataset;
-        $columns = [self::UTC_HOUR_COLUMN => new Expression($this->timezoneStrategy->utcHour(
-            $this->fieldExpressionResolver->resolve($dataset, Dataset::FIELD_CREATED_AT, $connection)
+        $columns = [self::UTC_HOUR_COLUMN => new Expression($this->timezoneStrategy->utcSlot(
+            $this->fieldExpressionResolver->resolve($dataset, Dataset::FIELD_CREATED_AT, $connection),
+            $this->slotMinutes($query)
         ))];
         if ($this->timezoneMap->hasMultipleTimezones($query->storeIds)) {
             $columns[self::STORE_COLUMN] = new Expression(

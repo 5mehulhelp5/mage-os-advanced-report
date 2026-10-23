@@ -39,6 +39,9 @@ class RequestValidator
      * @param Config $config
      * @param DatasetAccess $datasetAccess
      * @param StoreManagerInterface $storeManager
+     * @param ReportScopeResolver $reportScopeResolver
+     * @param MonetaryRequestDetector $monetaryRequestDetector
+     * @param BaseCurrencyChecker $baseCurrencyChecker
      */
     public function __construct(
         private readonly DefinitionRegistry $definitionRegistry,
@@ -47,6 +50,9 @@ class RequestValidator
         private readonly Config $config,
         private readonly DatasetAccess $datasetAccess,
         private readonly StoreManagerInterface $storeManager,
+        private readonly ReportScopeResolver $reportScopeResolver,
+        private readonly MonetaryRequestDetector $monetaryRequestDetector,
+        private readonly BaseCurrencyChecker $baseCurrencyChecker,
     ) {
     }
 
@@ -73,10 +79,14 @@ class RequestValidator
         $this->assertOffsetValid($request);
         $this->assertSortValid($request);
         $this->assertStoreIdsValid($request);
+        $this->assertSingleBaseCurrency($dataset, $request);
         $this->assertPresetValid($dataset, $request);
 
         if (!$dataset->dateless) {
-            $resolvedRange = $this->dateRangeResolver->resolve($request->getDateRange());
+            $resolvedRange = $this->dateRangeResolver->resolve(
+                $request->getDateRange(),
+                $this->reportScopeResolver->resolve($request->getStoreIds())
+            );
             $this->assertGranularityLimits($request, $resolvedRange);
             $this->assertFirstOrderRangeLimit($dataset, $request, $resolvedRange);
         }
@@ -318,6 +328,34 @@ class RequestValidator
                 throw new InvalidRequestException(new Phrase('Unknown store id "%1".', [$storeId]));
             }
         }
+    }
+
+    /**
+     * Rejects monetary requests spanning stores with different base currencies (amounts are
+     * never converted); a `base_currency_code` filter does not bypass the rule.
+     *
+     * @param Dataset $dataset
+     * @param ReportRequestInterface $request
+     */
+    private function assertSingleBaseCurrency(Dataset $dataset, ReportRequestInterface $request): void
+    {
+        if (!$dataset->hasField(Dataset::FIELD_STORE_ID)
+            || !$this->monetaryRequestDetector->isMonetary($dataset, $request)
+        ) {
+            return;
+        }
+
+        $storeIds = $request->getStoreIds();
+        if (!$this->baseCurrencyChecker->hasMixedCurrencies($storeIds)) {
+            return;
+        }
+
+        throw new InvalidRequestException(
+            new Phrase(
+                'The selected stores use different base currencies (%1): select stores that share one base currency to report amounts.',
+                [implode(', ', $this->baseCurrencyChecker->getCurrencyCodes($storeIds))]
+            )
+        );
     }
 
     /**

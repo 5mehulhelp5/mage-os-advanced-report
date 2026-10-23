@@ -13,7 +13,8 @@ use DateTimeImmutable;
 interface ClockInterface
 {
     /**
-     * Current local date (midnight, no time component) in the report scope's timezone.
+     * The current local date in `$timezone`, as midnight of that date in PHP's default
+     * timezone (the zone custom date ranges are parsed in), so instants compare consistently.
      */
-    public function today(): DateTimeImmutable;
+    public function today(string $timezone): DateTimeImmutable;
 }

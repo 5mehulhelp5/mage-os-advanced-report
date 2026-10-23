@@ -22,6 +22,7 @@ use MageOS\AdvancedReport\Model\Preset\DeadStockQuery;
 use MageOS\AdvancedReport\Model\Preset\NeverSoldQuery;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use MageOS\AdvancedReport\Model\Stock\StockSelectProvider;
@@ -259,7 +260,8 @@ final class StockAntiJoinQueryTest extends TestCase
             [],
             $sort,
             $limit,
-            $offset
+            $offset,
+            new ReportScope(null, 'UTC', 0, ['UTC'])
         );
     }
 }

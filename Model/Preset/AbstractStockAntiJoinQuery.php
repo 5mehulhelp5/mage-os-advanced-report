@@ -169,10 +169,13 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
 
     private function hasProductDimension(ResolvedQuery $resolvedQuery): bool
     {
-        return array_any(
-            $resolvedQuery->dimensions,
-            static fn (DimensionSelection $selection): bool => $selection->code === self::PRODUCT_DIMENSION
-        );
+        foreach ($resolvedQuery->dimensions as $selection) {
+            if ($selection->code === self::PRODUCT_DIMENSION) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -193,7 +196,8 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
             $resolvedQuery->storeIds,
             $resolvedQuery->sort,
             $resolvedQuery->limit,
-            $resolvedQuery->offset
+            $resolvedQuery->offset,
+            $resolvedQuery->scope
         );
     }
 

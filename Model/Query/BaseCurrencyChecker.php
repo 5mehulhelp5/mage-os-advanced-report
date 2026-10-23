@@ -8,11 +8,12 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Api\Data\WebsiteInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
+use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
  * Resolves and compares the base currency (`currency/options/base`, website scope) of the
  * websites a report request is scoped to, so {@see ReportResult} can report a single
- * `currency_code` and the report runner (task 044) can warn when the selected stores mix
+ * `currency_code` and {@see RequestValidator} can reject monetary requests whose stores mix
  * currencies.
  */
 class BaseCurrencyChecker
@@ -26,15 +27,37 @@ class BaseCurrencyChecker
     }
 
     /**
-     * Base currency of the first website in scope; empty `$storeIds` means all stores.
+     * Distinct, sorted base currency codes of the websites in scope; empty `$storeIds` means
+     * all stores.
+     *
+     * @param int[] $storeIds
+     * @return string[]
+     */
+    public function getCurrencyCodes(array $storeIds): array
+    {
+        $codes = array_values(
+            array_unique(array_map($this->currencyForWebsite(...), $this->resolveWebsiteIds($storeIds)))
+        );
+        sort($codes);
+
+        return $codes;
+    }
+
+    /**
+     * Currency code of a result: the default scope base currency for datasets without a store
+     * field, the single base currency in scope, or '' when the scope mixes currencies.
      *
      * @param int[] $storeIds
      */
-    public function getCurrencyCode(array $storeIds): string
+    public function resolveCurrencyCode(Dataset $dataset, array $storeIds): string
     {
-        $websiteIds = $this->resolveWebsiteIds($storeIds);
+        if (!$dataset->hasField(Dataset::FIELD_STORE_ID)) {
+            return (string) $this->scopeConfig->getValue(self::XML_PATH_BASE_CURRENCY);
+        }
 
-        return $this->currencyForWebsite($websiteIds[0]);
+        $codes = $this->getCurrencyCodes($storeIds);
+
+        return \count($codes) === 1 ? $codes[0] : '';
     }
 
     /**

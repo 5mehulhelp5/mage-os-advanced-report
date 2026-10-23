@@ -98,7 +98,7 @@ Stores > Configuration > Advanced Report > Configuration (default scope only).
 The report view shows a line with the order statuses currently counted (store-scoped labels when a single store is selected) and a link to this configuration.
 
 Weeks start on `general/locale/firstday` of the report scope store. Date filters use the website timezone
-(`general/locale/timezone`); amounts are in the base currency of the store.
+(`general/locale/timezone`); amounts are in the base currency of the store. See [time and currency](docs/time-and-currency.md).
 
 ## Metric definitions
 
@@ -473,11 +473,15 @@ Details, the entry-point inventory and the data classification are in [docs/secu
 
 ## Known limits
 
-The full list with severity and owner is in the [risk register](docs/risk-register.md). Metric semantics are in the [metric definitions](docs/metric-definitions.md).
+The full list with severity and owner is in the [risk register](docs/risk-register.md). Metric semantics are in the [metric definitions](docs/metric-definitions.md); timezone and currency rules are in [time and currency](docs/time-and-currency.md).
+
+- **Monetary reports and several base currencies**: a request with money metrics (or money filters) over stores or orders with different base currencies is rejected with HTTP 400 (also on Save, Export and `advanced-report:explain`). Select stores sharing one base currency. Orders, units and customer reports are not affected.
+- **Upgrade note**: the former "mixed base currencies" warning was removed; reports that used to show it are now rejected. Without MySQL timezone tables, results are exact but non-additive metrics are empty and non whole-hour timezones reach the row cap sooner.
 
 ## Documentation
 
 - [Metric definitions](docs/metric-definitions.md): business definition of every metric (formula, cancel/refund treatment, currency, date attribution, additivity, known limits) with the integration tests that prove it, and physical vs reserved vs salable quantities.
+- [Time and currency](docs/time-and-currency.md): timezone used for filtering, grouping, comparison and display, DST, the fallback without timezone tables, the currency of every financial metric, rejection rules and rounding.
 - [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
 - [Security](docs/security.md): ACL model per entry point and dataset, data classification, cache and logging.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.

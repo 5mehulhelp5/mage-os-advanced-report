@@ -27,6 +27,7 @@ final readonly class ResolvedQuery
      * @param SortOrder[] $sort
      * @param int|null $limit Maximum number of rows to return, null for no explicit limit.
      * @param int $offset Number of rows to skip.
+     * @param ReportScope $scope Reference store, timezone and first day of week of the report.
      */
     public function __construct(
         public Dataset $dataset,
@@ -38,6 +39,7 @@ final readonly class ResolvedQuery
         public array $sort,
         public ?int $limit,
         public int $offset,
+        public ReportScope $scope,
     ) {
     }
 }

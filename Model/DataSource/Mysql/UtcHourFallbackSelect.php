@@ -19,6 +19,7 @@ final readonly class UtcHourFallbackSelect
      * @param string $hourColumn Alias of the UTC hour column.
      * @param string|null $storeColumn Alias of the store id column, present when several timezones apply.
      * @param bool $dropStoreColumn Whether the store column is only a helper (not a requested dimension).
+     * @param int $slotMinutes Size of the UTC slots the select is grouped by: 60 or 15.
      */
     public function __construct(
         public Select $select,
@@ -27,6 +28,7 @@ final readonly class UtcHourFallbackSelect
         public string $hourColumn,
         public ?string $storeColumn,
         public bool $dropStoreColumn,
+        public int $slotMinutes,
     ) {
     }
 }

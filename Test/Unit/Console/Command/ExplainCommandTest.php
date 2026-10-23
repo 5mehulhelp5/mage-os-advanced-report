@@ -19,6 +19,7 @@ use MageOS\AdvancedReport\Model\Definition\Preset;
 use MageOS\AdvancedReport\Model\Preset\PresetQueryPool;
 use MageOS\AdvancedReport\Model\Query\PresetRequestBuilder;
 use MageOS\AdvancedReport\Model\Query\QueryPlanner;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -127,7 +128,7 @@ final class ExplainCommandTest extends TestCase
     {
         $this->requestBuilder->method('build')->willReturn($this->createStub(ReportRequestInterface::class));
         $dataset = new Dataset('sales_orders', 'Orders', 'acl', 'sales', false, null, null, 'provider', [], [], [], [], []);
-        $main = new ResolvedQuery($dataset, [], [], [], null, [], [], null, 0);
+        $main = new ResolvedQuery($dataset, [], [], [], null, [], [], null, 0, new ReportScope(null, 'UTC', 0, ['UTC']));
         $this->planner->method('plan')->willReturn(['main' => $main, 'comparison' => null]);
         $select = $this->createStub(Select::class);
         $select->method('assemble')->willReturn('SELECT 1 WHERE a = :a');

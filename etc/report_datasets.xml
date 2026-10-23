@@ -23,6 +23,9 @@
         <field code="status" label="Status" type="string">
             <mysql expression="main.status"/>
         </field>
+        <field code="base_currency_code" label="Base currency" type="string">
+            <mysql expression="main.base_currency_code"/>
+        </field>
 
         <field code="order_id" label="Order ID" type="id">
             <mysql expression="main.entity_id"/>
@@ -181,6 +184,9 @@
         </field>
         <field code="status" label="Status" type="string">
             <mysql expression="main.status"/>
+        </field>
+        <field code="base_currency_code" label="Base currency" type="string">
+            <mysql expression="main.base_currency_code"/>
         </field>
 
         <field code="order_id" label="Order ID" type="id">
@@ -399,6 +405,9 @@
         </field>
         <field code="status" label="Status" type="string">
             <mysql expression="order.status" joins="order"/>
+        </field>
+        <field code="base_currency_code" label="Base currency" type="string">
+            <mysql expression="order.base_currency_code" joins="order"/>
         </field>
 
         <field code="item_id" label="Item ID" type="id">

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Query;
 
-use DateInterval;
 use DateTimeImmutable;
+use DateTimeZone;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 
 /**
@@ -19,12 +19,17 @@ use MageOS\AdvancedReport\Model\Definition\Granularity;
 class DateBucketSequence
 {
     /**
+     * @param string[] $timezones Distinct timezones in scope; only used for hourly buckets.
      * @return string[]
      */
-    public function generate(ResolvedDateRange $range, Granularity $granularity, int $firstDayOfWeek = 0): array
-    {
+    public function generate(
+        ResolvedDateRange $range,
+        Granularity $granularity,
+        int $firstDayOfWeek = 0,
+        array $timezones = ['UTC'],
+    ): array {
         return match ($granularity) {
-            Granularity::HOUR => $this->generateHours($range),
+            Granularity::HOUR => $this->generateHours($range, $timezones),
             Granularity::DAY => $this->generateDays($range),
             Granularity::WEEK => $this->generateWeeks($range, $firstDayOfWeek),
             Granularity::MONTH => $this->generateMonths($range),
@@ -33,17 +38,27 @@ class DateBucketSequence
     }
 
     /**
+     * Local wall-clock hours of every timezone in scope: iterates UTC instants so a skipped
+     * DST hour never appears and a repeated hour collapses into one key.
+     *
+     * @param string[] $timezones
      * @return string[]
      */
-    private function generateHours(ResolvedDateRange $range): array
+    private function generateHours(ResolvedDateRange $range, array $timezones): array
     {
+        $fromDate = $range->from->format('Y-m-d');
+        $toDate = $range->to->modify('+1 day')->format('Y-m-d');
         $keys = [];
-        $cursor = $range->from;
-        $end = $range->to->modify('+1 day');
-        while ($cursor < $end) {
-            $keys[] = $cursor->format('Y-m-d H:00');
-            $cursor = $cursor->add(new DateInterval('PT1H'));
+        foreach ($timezones as $timezoneName) {
+            $local = new DateTimeZone($timezoneName);
+            $ts = (new DateTimeImmutable($fromDate, $local))->getTimestamp();
+            $end = (new DateTimeImmutable($toDate, $local))->getTimestamp();
+            for (; $ts < $end; $ts += 3600) {
+                $keys[(new DateTimeImmutable('@' . $ts))->setTimezone($local)->format('Y-m-d H:00')] = true;
+            }
         }
+        $keys = array_keys($keys);
+        sort($keys);
 
         return $keys;
     }

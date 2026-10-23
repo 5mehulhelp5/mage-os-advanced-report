@@ -63,6 +63,26 @@ final class DateBucketFillerTest extends TestCase
         ], $filled[1]['metrics']);
     }
 
+    public function testItDoesNotFillAZeroRowForTheSkippedLocalHourOnTheSpringForwardDay(): void
+    {
+        $dataset = $this->buildDataset([$this->aggregateMetric('orders', AggregateFunction::COUNT)]);
+
+        $filled = $this->filler->fillDateBuckets(
+            $dataset,
+            [$this->row('2026-03-29 01:00', ['orders' => 2])],
+            'order_date',
+            ['orders'],
+            $this->resolvedRange('2026-03-29', '2026-03-29'),
+            Granularity::HOUR,
+            0,
+            ['Europe/Rome'],
+        );
+
+        $hours = array_column(array_column($filled, 'dims'), 'order_date');
+        self::assertCount(23, $filled);
+        self::assertNotContains('2026-03-29 02:00', $hours);
+    }
+
     public function testItKeepsExistingRowsUntouchedAndOrdersRowsByBucket(): void
     {
         $dataset = $this->buildDataset([$this->aggregateMetric('orders', AggregateFunction::COUNT)]);

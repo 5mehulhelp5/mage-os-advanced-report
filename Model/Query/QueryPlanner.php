@@ -24,6 +24,7 @@ class QueryPlanner
         private readonly DefinitionRegistry $definitionRegistry,
         private readonly DateRangeResolver $dateRangeResolver,
         private readonly DerivedMetricCalculator $derivedMetricCalculator,
+        private readonly ReportScopeResolver $reportScopeResolver,
     ) {
     }
 
@@ -38,11 +39,12 @@ class QueryPlanner
 
         $dataset = $this->definitionRegistry->getDataset($request->getDataset());
         $aggregates = $this->derivedMetricCalculator->getRequiredAggregates($dataset, $request->getMetrics());
-        $range = $dataset->dateless ? null : $this->dateRangeResolver->resolve($request->getDateRange());
+        $scope = $this->reportScopeResolver->resolve($request->getStoreIds());
+        $range = $dataset->dateless ? null : $this->dateRangeResolver->resolve($request->getDateRange(), $scope);
 
         return [
-            'main' => $this->buildQuery($dataset, $aggregates, $request, $range),
-            'comparison' => $this->planComparison($dataset, $aggregates, $request, $range),
+            'main' => $this->buildQuery($dataset, $aggregates, $request, $range, $scope),
+            'comparison' => $this->planComparison($dataset, $aggregates, $request, $range, $scope),
         ];
     }
 
@@ -54,17 +56,18 @@ class QueryPlanner
         array $aggregates,
         ReportRequestInterface $request,
         ?ResolvedDateRange $range,
+        ReportScope $scope,
     ): ?ResolvedQuery {
         if ($range === null || $request->getCompareTo() === CompareMode::NONE) {
             return null;
         }
 
         $comparisonPeriod = match ($request->getCompareTo()) {
-            CompareMode::PREVIOUS_PERIOD => $this->dateRangeResolver->previousPeriod($range),
-            CompareMode::PREVIOUS_YEAR => $this->dateRangeResolver->previousYear($range),
+            CompareMode::PREVIOUS_PERIOD => $this->dateRangeResolver->previousPeriod($range, $scope),
+            CompareMode::PREVIOUS_YEAR => $this->dateRangeResolver->previousYear($range, $scope),
         };
 
-        return $this->buildQuery($dataset, $aggregates, $request, $comparisonPeriod->range);
+        return $this->buildQuery($dataset, $aggregates, $request, $comparisonPeriod->range, $scope);
     }
 
     /**
@@ -75,6 +78,7 @@ class QueryPlanner
         array $aggregates,
         ReportRequestInterface $request,
         ?ResolvedDateRange $range,
+        ReportScope $scope,
     ): ResolvedQuery {
         return new ResolvedQuery(
             dataset: $dataset,
@@ -86,6 +90,7 @@ class QueryPlanner
             sort: $request->getSort(),
             limit: $request->getLimit(),
             offset: $request->getOffset(),
+            scope: $scope,
         );
     }
 }

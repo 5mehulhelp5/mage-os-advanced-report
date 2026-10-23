@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
+use DateInterval;
 use DateTimeImmutable;
 use Magento\Framework\Locale\ResolverInterface as LocaleResolverInterface;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\DataSourceInterface;
 use MageOS\AdvancedReport\Api\PresetQueryInterface;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\CurrencyProbeInterface;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\Dimension;
+use MageOS\AdvancedReport\Model\Definition\Field;
+use MageOS\AdvancedReport\Model\Definition\FieldType;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\Preset;
@@ -24,6 +28,7 @@ use MageOS\AdvancedReport\Model\Query\BaseCurrencyChecker;
 use MageOS\AdvancedReport\Model\Query\ColumnMetadataBuilder;
 use MageOS\AdvancedReport\Model\Query\CompareMode;
 use MageOS\AdvancedReport\Model\Query\ComparisonMerger;
+use MageOS\AdvancedReport\Model\Query\ComparisonPeriod;
 use MageOS\AdvancedReport\Model\Query\DateBucketFiller;
 use MageOS\AdvancedReport\Model\Query\DateBucketPostProcessor;
 use MageOS\AdvancedReport\Model\Query\DateBucketSequence;
@@ -32,9 +37,12 @@ use MageOS\AdvancedReport\Model\Query\DateRangeResolver;
 use MageOS\AdvancedReport\Model\Query\DateRangeType;
 use MageOS\AdvancedReport\Model\Query\DerivedMetricCalculator;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
+use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
+use MageOS\AdvancedReport\Model\Query\MonetaryRequestDetector;
 use MageOS\AdvancedReport\Model\Query\QueryPlanner;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportRunner;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ReportWarningsCollector;
 use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
@@ -61,6 +69,10 @@ final class ReportRunnerTest extends TestCase
     private ReportWarningsCollector $warningsCollector;
 
     private BaseCurrencyChecker $baseCurrencyChecker;
+
+    private MonetaryRequestDetector $monetaryRequestDetector;
+
+    private CurrencyProbeInterface $currencyProbe;
 
     private LocaleResolverInterface $localeResolver;
 
@@ -93,7 +105,13 @@ final class ReportRunnerTest extends TestCase
         $this->warningsCollector->method('collect')->willReturn([]);
 
         $this->baseCurrencyChecker = $this->createStub(BaseCurrencyChecker::class);
-        $this->baseCurrencyChecker->method('getCurrencyCode')->willReturn('USD');
+        $this->baseCurrencyChecker->method('resolveCurrencyCode')->willReturn('USD');
+
+        $this->monetaryRequestDetector = $this->createStub(MonetaryRequestDetector::class);
+        $this->monetaryRequestDetector->method('isMonetary')->willReturn(true);
+
+        $this->currencyProbe = $this->createStub(CurrencyProbeInterface::class);
+        $this->currencyProbe->method('getBaseCurrencies')->willReturn([]);
 
         $this->localeResolver = $this->createStub(LocaleResolverInterface::class);
         $this->localeResolver->method('getLocale')->willReturn('en_US');
@@ -267,6 +285,35 @@ final class ReportRunnerTest extends TestCase
         self::assertArrayHasKey('comparison', $result->getTotals());
     }
 
+    public function testItResolvesTheComparisonAlignmentPeriodWithTheMainQueryScopeInTheRunner(): void
+    {
+        $request = $this->buildRequest(
+            dimensions: [new DimensionSelection('order_date', Granularity::DAY)],
+            compareTo: CompareMode::PREVIOUS_PERIOD,
+        );
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $comparisonRange = $this->resolvedRange('2026-08-07', '2026-08-31');
+        $comparisonQuery = $this->buildResolvedQuery(['net_sales'], range: $comparisonRange);
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => $comparisonQuery]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 100.0]], totalRowCount: 0)
+        );
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        $dateRangeResolver = $this->createMock(DateRangeResolver::class);
+        $dateRangeResolver->expects(self::once())
+            ->method('previousPeriod')
+            ->with($mainQuery->dateRange, $mainQuery->scope)
+            ->willReturn(new ComparisonPeriod($comparisonRange, new DateInterval('P25D')));
+        $this->dateRangeResolver = $dateRangeResolver;
+
+        $this->buildRunner(['queryPlanner' => $queryPlanner, 'sourceResolver' => $sourceResolver])->run($request);
+    }
+
     public function testItDispatchesPresetsWithAPresetQueryThroughThePresetQueryPool(): void
     {
         $request = $this->buildRequest(preset: 'low_stock');
@@ -316,6 +363,42 @@ final class ReportRunnerTest extends TestCase
         $result = $runner->run($request);
 
         self::assertSame('low_stock', $result->getSource());
+    }
+
+    public function testItFillsAndAlignsWeekBucketsWithTheReportScopeFirstDayOfWeek(): void
+    {
+        $request = $this->buildRequest(
+            metrics: ['net_sales'],
+            dimensions: [new DimensionSelection('order_date', Granularity::WEEK)],
+        );
+        // 2026-03-10 is a Tuesday; the scope week starts on Monday (1) while the default config says Sunday (0)
+        $range = $this->resolvedRange('2026-03-10', '2026-03-25');
+        $mainQuery = $this->buildResolvedQuery(['net_sales'], range: $range);
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => null]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 0]], totalRowCount: 0)
+        );
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        $runner = $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'dateBucketPostProcessor' => new DateBucketPostProcessor(
+                new DateBucketFiller(new DateBucketSequence()),
+                new LabelResolverPool()
+            ),
+        ]);
+
+        $keys = array_map(
+            static fn (array $row): string => $row['dims_raw']['order_date'],
+            $runner->run($request)->getRows()
+        );
+
+        self::assertSame(['2026-03-09', '2026-03-16', '2026-03-23'], $keys);
     }
 
     public function testItFillsEmptyDateBucketsAndPaginatesInPhpForSingleDateDimensionRequests(): void
@@ -410,6 +493,163 @@ final class ReportRunnerTest extends TestCase
         self::assertSame(['Cost data is known for only 50% of the reported rows.'], $result->getWarnings());
     }
 
+    public function testItRejectsAMonetaryRequestWhenTheMainPeriodOrdersUseDifferentBaseCurrencies(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $probe = $this->createStub(CurrencyProbeInterface::class);
+        $probe->method('getBaseCurrencies')->willReturn(['EUR', 'USD']);
+        $dataSource = $this->createMock(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->expects(self::never())->method('execute');
+
+        $this->expectException(InvalidRequestException::class);
+        $this->expectExceptionMessage(
+            'The orders in the report period use different base currencies (EUR, USD): amounts cannot be added without conversion.'
+        );
+
+        $this->buildCurrencyRunner($mainQuery, null, $dataSource, ['currencyProbe' => $probe])->run($this->buildRequest());
+    }
+
+    public function testItRejectsAMonetaryRequestWhenTheComparisonPeriodCurrencyDiffersFromTheMainPeriod(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $comparisonQuery = $this->buildResolvedQuery(['net_sales'], range: $this->resolvedRange('2026-08-01', '2026-08-25'));
+        $probe = $this->createStub(CurrencyProbeInterface::class);
+        $probe->method('getBaseCurrencies')->willReturnCallback(
+            static fn (ResolvedQuery $query): array => $query->dateRange?->from->format('m') === '08' ? ['USD'] : ['EUR']
+        );
+        $dataSource = $this->createMock(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->expects(self::never())->method('execute');
+
+        $this->expectException(InvalidRequestException::class);
+        $this->expectExceptionMessage('(EUR, USD)');
+
+        $this->buildCurrencyRunner($mainQuery, $comparisonQuery, $dataSource, ['currencyProbe' => $probe])
+            ->run($this->buildRequest(compareTo: CompareMode::PREVIOUS_PERIOD));
+    }
+
+    public function testItReportsTheProbedBaseCurrencyAsTheResultCurrencyCode(): void
+    {
+        $probe = $this->createStub(CurrencyProbeInterface::class);
+        $probe->method('getBaseCurrencies')->willReturn(['EUR']);
+
+        $result = $this->buildCurrencyRunner($this->buildResolvedQuery(['net_sales']), null, $this->buildCurrencyDataSource(), ['currencyProbe' => $probe])
+            ->run($this->buildRequest());
+
+        self::assertSame('EUR', $result->getCurrencyCode());
+    }
+
+    public function testItFallsBackToTheConfiguredBaseCurrencyWhenTheProbeFindsNoOrders(): void
+    {
+        $result = $this->buildCurrencyRunner($this->buildResolvedQuery(['net_sales']), null, $this->buildCurrencyDataSource())
+            ->run($this->buildRequest());
+
+        self::assertSame('USD', $result->getCurrencyCode());
+    }
+
+    public function testItDoesNotProbeCurrenciesForNonMonetaryRequests(): void
+    {
+        $detector = $this->createStub(MonetaryRequestDetector::class);
+        $detector->method('isMonetary')->willReturn(false);
+        $probe = $this->createMock(CurrencyProbeInterface::class);
+        $probe->expects(self::never())->method('getBaseCurrencies');
+
+        $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            null,
+            $this->buildCurrencyDataSource(),
+            ['currencyProbe' => $probe, 'monetaryRequestDetector' => $detector],
+        )->run($this->buildRequest());
+    }
+
+    public function testItDoesNotProbeCurrenciesForPresetQueryExecutions(): void
+    {
+        $preset = new Preset(
+            code: 'low_stock',
+            area: 'catalog',
+            label: 'Low stock coverage',
+            dataset: 'sales_items',
+            metrics: ['net_sales'],
+            dimensions: [],
+            filters: [],
+            sort: [],
+            compareTo: 'none',
+            dateRange: null,
+            sources: [],
+            presetQuery: LowStockCoverageQuery::class,
+        );
+        $definitionRegistry = $this->createStub(DefinitionRegistry::class);
+        $definitionRegistry->method('getDataset')->willReturn($this->dataset);
+        $definitionRegistry->method('getConfigVersion')->willReturn('config-v1');
+        $definitionRegistry->method('getPreset')->willReturn($preset);
+        $presetQuery = $this->createStub(PresetQueryInterface::class);
+        $presetQuery->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 5.0]], totalRowCount: 0),
+        );
+        $presetQueryPool = $this->createStub(PresetQueryPool::class);
+        $presetQueryPool->method('get')->willReturn($presetQuery);
+        $probe = $this->createMock(CurrencyProbeInterface::class);
+        $probe->expects(self::never())->method('getBaseCurrencies');
+
+        $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            null,
+            $this->buildCurrencyDataSource(),
+            ['currencyProbe' => $probe, 'definitionRegistry' => $definitionRegistry, 'presetQueryPool' => $presetQueryPool],
+        )->run($this->buildRequest(preset: 'low_stock'));
+    }
+
+    public function testItDoesNotCacheARejectedRequest(): void
+    {
+        $probe = $this->createStub(CurrencyProbeInterface::class);
+        $probe->method('getBaseCurrencies')->willReturn(['EUR', 'USD']);
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->method('buildKey')->willReturn('cache-key');
+        $resultCache->method('load')->willReturn(null);
+        $resultCache->expects(self::never())->method('save');
+
+        try {
+            $this->buildCurrencyRunner(
+                $this->buildResolvedQuery(['net_sales']),
+                null,
+                $this->buildCurrencyDataSource(),
+                ['currencyProbe' => $probe, 'resultCache' => $resultCache],
+            )->run($this->buildRequest());
+            self::fail('Expected InvalidRequestException');
+        } catch (InvalidRequestException) {
+            // expected
+        }
+    }
+
+    private function buildCurrencyDataSource(): DataSourceInterface
+    {
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 100.0]], totalRowCount: 0)
+        );
+
+        return $dataSource;
+    }
+
+    /**
+     * @param array<string,mixed> $overrides
+     */
+    private function buildCurrencyRunner(
+        ResolvedQuery $mainQuery,
+        ?ResolvedQuery $comparisonQuery,
+        DataSourceInterface $dataSource,
+        array $overrides = [],
+    ): ReportRunner {
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => $comparisonQuery]);
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        return $this->buildRunner([...$overrides, 'queryPlanner' => $queryPlanner, 'sourceResolver' => $sourceResolver]);
+    }
+
     /**
      * @param array<string,mixed> $overrides Must include `queryPlanner` and `sourceResolver`,
      *                                       each test configures its own `plan()`/`resolve()`.
@@ -430,6 +670,8 @@ final class ReportRunnerTest extends TestCase
             $overrides['dateBucketPostProcessor'] ?? new DateBucketPostProcessor(new DateBucketFiller(new DateBucketSequence()), new LabelResolverPool()),
             $overrides['warningsCollector'] ?? $this->warningsCollector,
             $this->baseCurrencyChecker,
+            $overrides['monetaryRequestDetector'] ?? $this->monetaryRequestDetector,
+            $overrides['currencyProbe'] ?? $this->currencyProbe,
             $this->localeResolver,
             $overrides['aclContext'] ?? $this->aclContext,
         );
@@ -487,6 +729,7 @@ final class ReportRunnerTest extends TestCase
             sort: [],
             limit: $limit,
             offset: $offset,
+            scope: new ReportScope(1, 'Europe/Rome', 1, ['Europe/Rome']),
         );
     }
 
@@ -510,7 +753,13 @@ final class ReportRunnerTest extends TestCase
             baseAlias: 'main',
             baseProvider: null,
             implicitFilters: [],
-            fields: [],
+            fields: [
+                Dataset::FIELD_BASE_CURRENCY => new Field(
+                    Dataset::FIELD_BASE_CURRENCY,
+                    'Base currency',
+                    FieldType::STRING,
+                ),
+            ],
             joins: [],
             metrics: [
                 'net_sales' => $this->aggregateMetric('net_sales', AggregateFunction::SUM),

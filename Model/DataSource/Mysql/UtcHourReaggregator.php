@@ -7,14 +7,13 @@ namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
 
 /**
- * Fallback for databases without timezone tables: rows grouped by UTC hour in SQL are
+ * Fallback for databases without timezone tables: rows grouped by UTC slot in SQL are
  * re-aggregated here into local hour/day/week/month/year/hour-of-day/weekday buckets.
  *
  * Exact for sums, counts, min/max and `count_distinct(order_id)` (each order falls in exactly one
@@ -23,23 +22,22 @@ use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
  */
 class UtcHourReaggregator
 {
-    private const string XML_PATH_FIRST_DAY = 'general/locale/firstday';
     private const string UTC_HOUR_KEY = 'utc_hour';
     private const string ADDITIVE_DISTINCT_FIELD = 'order_id';
 
     public function __construct(
         private readonly StoreTimezoneMap $timezoneMap,
-        private readonly ScopeConfigInterface $scopeConfig,
     ) {
     }
 
     /**
      * @param array<int,array{dims_raw: array<string,?string>, metrics: array<string,int|float|null>}> $rows
-     *                                                                                                       Rows carrying `utc_hour` (`Y-m-d H:00:00`) and, when timezones differ, the store id.
+     *                                                                                                       Rows carrying `utc_hour` (`Y-m-d H:i:00`, a 60 or 15 minute UTC slot) and, when timezones differ, the store id.
      * @param string $bucketDimCode Dimension code the local bucket is written to.
      * @param string $bucket hour|day|week|month|year|hour_of_day|weekday
      * @param Metric[] $metrics Aggregate metrics to merge (others are ignored).
      * @param int[] $storeIds
+     * @param int $firstDayOfWeek 0 (Sunday) to 6 (Saturday), used by the week bucket.
      * @param string|null $storeKey Key in `dims_raw` holding the store id (multi-timezone only).
      * @param bool $dropStoreKey Remove the store key from output (when it is only a helper column).
      * @return array{rows: array<int,array{dims: array<string,?string>, dims_raw: array<string,?string>, metrics: array<string,int|float|null>}>, warnings: string[]}
@@ -50,24 +48,23 @@ class UtcHourReaggregator
         string $bucket,
         array $metrics,
         array $storeIds,
+        int $firstDayOfWeek,
         ?string $storeKey = null,
         bool $dropStoreKey = false,
     ): array {
         $metrics = array_values(array_filter($metrics, static fn (Metric $m): bool => $m->isAggregate()));
         $groups = [];
         $warnings = [];
-        $firstHour = null;
 
         foreach ($rows as $row) {
             $raw = $row['dims_raw'];
             $utcHour = (string) $raw[self::UTC_HOUR_KEY];
-            $firstHour ??= $utcHour;
             $storeId = $storeKey !== null ? (int) $raw[$storeKey] : (int) reset($storeIds);
             unset($raw[self::UTC_HOUR_KEY]);
             if ($dropStoreKey && $storeKey !== null) {
                 unset($raw[$storeKey]);
             }
-            $raw[$bucketDimCode] = $this->bucketValue($bucket, $utcHour, $storeId);
+            $raw[$bucketDimCode] = $this->bucketValue($bucket, $utcHour, $storeId, $firstDayOfWeek);
 
             $key = json_encode($raw, JSON_THROW_ON_ERROR);
             $groups[$key]['dims'] = $raw;
@@ -91,21 +88,20 @@ class UtcHourReaggregator
             )),
             'warnings' => [
                 ...$this->unsupportedWarnings($metrics),
-                ...$this->offsetWarnings($storeIds, $firstHour),
             ],
         ];
     }
 
-    private function bucketValue(string $bucket, string $utcHour, int $storeId): string
+    private function bucketValue(string $bucket, string $utcHour, int $storeId, int $firstDayOfWeek): string
     {
-        $local = new DateTimeImmutable($utcHour, new DateTimeZone('UTC'))
+        $local = (new DateTimeImmutable($utcHour, new DateTimeZone('UTC')))
             ->setTimezone(new DateTimeZone($this->timezoneMap->getTimezone($storeId)));
 
         return match ($bucket) {
             'hour' => $local->format('Y-m-d H:00'),
             'day' => $local->format('Y-m-d'),
             'week' => $local
-                ->modify(\sprintf('-%d days', ((int) $local->format('w') - $this->getFirstDay() + 7) % 7))
+                ->modify(\sprintf('-%d days', ((int) $local->format('w') - $firstDayOfWeek % 7 + 7) % 7))
                 ->format('Y-m-d'),
             'month' => $local->format('Y-m'),
             'year' => $local->format('Y'),
@@ -160,31 +156,5 @@ class UtcHourReaggregator
         }
 
         return $warnings;
-    }
-
-    /**
-     * @param int[] $storeIds
-     * @return string[]
-     */
-    private function offsetWarnings(array $storeIds, ?string $firstHour): array
-    {
-        if ($firstHour === null) {
-            return [];
-        }
-        $at = new DateTimeImmutable($firstHour, new DateTimeZone('UTC'));
-        if (!$this->timezoneMap->hasNonWholeHourOffset($storeIds, $at)) {
-            return [];
-        }
-
-        return [
-            (string) new Phrase(
-                'A store timezone has a non whole hour offset: hourly buckets may be inaccurate without database timezone tables.',
-            ),
-        ];
-    }
-
-    private function getFirstDay(): int
-    {
-        return ((int) $this->scopeConfig->getValue(self::XML_PATH_FIRST_DAY)) % 7;
     }
 }

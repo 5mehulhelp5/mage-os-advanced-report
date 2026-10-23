@@ -5,21 +5,23 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\Query;
 
 use DateTimeImmutable;
-use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
+use DateTimeZone;
+use Magento\Framework\Stdlib\DateTime\DateTime;
 
 /**
- * {@see ClockInterface} backed by the Magento locale/timezone service.
+ * {@see ClockInterface} backed by the current GMT timestamp.
  */
 class Clock implements ClockInterface
 {
-    public function __construct(private readonly TimezoneInterface $timezone)
+    public function __construct(private readonly DateTime $dateTime)
     {
     }
 
-    public function today(): DateTimeImmutable
+    public function today(string $timezone): DateTimeImmutable
     {
-        $date = $this->timezone->date(null, null, true, false);
+        $local = (new DateTimeImmutable('@' . $this->dateTime->gmtTimestamp()))
+            ->setTimezone(new DateTimeZone($timezone));
 
-        return DateTimeImmutable::createFromInterface($date)->setTime(0, 0, 0);
+        return new DateTimeImmutable($local->format('Y-m-d'));
     }
 }

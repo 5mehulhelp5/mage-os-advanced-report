@@ -55,7 +55,7 @@ final class DiXmlTest extends TestCase
         $type = self::EXPRESSION_NAMESPACE . 'SalesDocumentCountExpression';
         $parameters = array_map(
             static fn (ReflectionParameter $parameter): string => $parameter->getName(),
-            new ReflectionClass($type)->getConstructor()?->getParameters() ?? []
+            (new ReflectionClass($type))->getConstructor()?->getParameters() ?? []
         );
 
         foreach ([
@@ -116,7 +116,7 @@ final class DiXmlTest extends TestCase
         string $objectClass,
     ): void {
         self::assertTrue(class_exists($typeName), $typeName . ' does not exist');
-        $constructor = new ReflectionClass($typeName)->getConstructor();
+        $constructor = (new ReflectionClass($typeName))->getConstructor();
         self::assertNotNull($constructor, $typeName . ' has no constructor');
 
         $parameterType = null;

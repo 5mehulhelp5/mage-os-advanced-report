@@ -94,6 +94,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
             [],
             null,
             0,
+            $resolvedQuery->scope,
         );
 
         return $source->execute($request, $stockQuery)->rows;

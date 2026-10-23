@@ -107,17 +107,37 @@ class StoreTimezoneMap
     }
 
     /**
+     * Whether any timezone in scope has, at some point of the range, a UTC offset that is not a
+     * whole number of hours (so UTC hour slots would split local hours). A null range is checked
+     * at the current instant.
+     *
      * @param int[] $storeIds
      */
-    public function hasNonWholeHourOffset(array $storeIds, DateTimeImmutable $at): bool
+    public function requiresQuarterHourSlots(array $storeIds, ?ResolvedDateRange $range): bool
     {
+        $utc = new DateTimeZone('UTC');
+        $now = new DateTimeImmutable('now', $utc);
+        $from = $range !== null ? $this->convertBoundary($range->from, $utc)->modify('-1 day') : $now;
+        $to = $range !== null ? $this->convertBoundary($range->to, $utc)->modify('+2 days') : $now;
         foreach (array_unique($this->getTimezonesForStores($storeIds)) as $timezone) {
-            if ($at->setTimezone(new DateTimeZone($timezone))->getOffset() % 3600 !== 0) {
-                return true;
+            $tz = new DateTimeZone($timezone);
+            $offsets = [$tz->getOffset($from), $tz->getOffset($to)];
+            foreach ($tz->getTransitions($from->getTimestamp(), $to->getTimestamp()) as $transition) {
+                $offsets[] = $transition['offset'];
+            }
+            foreach ($offsets as $offset) {
+                if ($offset % 3600 !== 0) {
+                    return true;
+                }
             }
         }
 
         return false;
+    }
+
+    private function convertBoundary(DateTimeImmutable $date, DateTimeZone $utc): DateTimeImmutable
+    {
+        return new DateTimeImmutable($date->format('Y-m-d') . ' 00:00:00', $utc);
     }
 
     /**

@@ -7,10 +7,12 @@ namespace MageOS\AdvancedReport\Model\Query;
 use DateTimeImmutable;
 use DateTimeInterface;
 use Magento\Framework\Locale\ResolverInterface as LocaleResolverInterface;
+use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\CurrencyProbeInterface;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Preset\PresetQueryPool;
@@ -51,6 +53,8 @@ class ReportRunner implements ReportRunnerInterface
         private readonly DateBucketPostProcessor $dateBucketPostProcessor,
         private readonly ReportWarningsCollector $warningsCollector,
         private readonly BaseCurrencyChecker $baseCurrencyChecker,
+        private readonly MonetaryRequestDetector $monetaryRequestDetector,
+        private readonly CurrencyProbeInterface $currencyProbe,
         private readonly LocaleResolverInterface $localeResolver,
         private readonly AclContext $aclContext,
     ) {
@@ -79,7 +83,7 @@ class ReportRunner implements ReportRunnerInterface
 
     /**
      * @param array{main: ResolvedQuery, comparison: ?ResolvedQuery} $plan
-     * @param array{sourceCode: string, execute: callable(ResolvedQuery): RawResult} $execution
+     * @param array{sourceCode: string, isPreset: bool, execute: callable(ResolvedQuery): RawResult} $execution
      */
     private function execute(
         ReportRequestInterface $request,
@@ -101,9 +105,11 @@ class ReportRunner implements ReportRunnerInterface
             );
         }
 
-        $firstDayOfWeek = $this->config->getFirstDayOfWeek($request->getStoreIds()[0] ?? null);
+        $firstDayOfWeek = $mainQuery->scope->firstDayOfWeek;
         $isBucketRequest = $this->dateBucketPostProcessor->supports($request);
         $mainExecutionQuery = $isBucketRequest ? $this->withPaging($mainQuery, null, 0) : $mainQuery;
+
+        $probedCurrencies = $execution['isPreset'] ? [] : $this->probeBaseCurrencies($request, $dataset, $plan);
 
         $mainRaw = ($execution['execute'])($mainExecutionQuery);
 
@@ -117,6 +123,7 @@ class ReportRunner implements ReportRunnerInterface
                 $mainQuery->metrics,
                 $mainQuery->dateRange,
                 $firstDayOfWeek,
+                $mainQuery->scope->timezones,
             );
             $rows = $processed['rows'];
             $totalRowCount = $processed['totalRowCount'];
@@ -166,7 +173,9 @@ class ReportRunner implements ReportRunnerInterface
             totalRowCount: $totalRowCount,
             range: $mainQuery->dateRange,
             comparisonRange: $comparisonRange,
-            currencyCode: $this->baseCurrencyChecker->getCurrencyCode($request->getStoreIds()),
+            currencyCode: \count($probedCurrencies) === 1
+                ? $probedCurrencies[0]
+                : $this->baseCurrencyChecker->resolveCurrencyCode($dataset, $request->getStoreIds()),
             warnings: $warnings,
             source: $execution['sourceCode'],
             generatedAt: new DateTimeImmutable(),
@@ -176,7 +185,38 @@ class ReportRunner implements ReportRunnerInterface
     }
 
     /**
-     * @return array{sourceCode: string, execute: callable(ResolvedQuery): RawResult}
+     * Distinct base currencies of the orders in the main and comparison periods of a monetary
+     * request; empty when the probe does not apply.
+     *
+     * @param array{main: ResolvedQuery, comparison: ?ResolvedQuery} $plan
+     * @throws InvalidRequestException When the periods mix base currencies
+     * @return string[]
+     */
+    private function probeBaseCurrencies(ReportRequestInterface $request, Dataset $dataset, array $plan): array
+    {
+        if (!$dataset->hasField(Dataset::FIELD_BASE_CURRENCY) || !$this->monetaryRequestDetector->isMonetary($dataset, $request)) {
+            return [];
+        }
+
+        $currencies = $this->currencyProbe->getBaseCurrencies($plan['main']);
+        if ($plan['comparison'] !== null) {
+            $currencies = [...$currencies, ...$this->currencyProbe->getBaseCurrencies($plan['comparison'])];
+        }
+        $currencies = array_values(array_unique($currencies));
+        sort($currencies);
+
+        if (\count($currencies) > 1) {
+            throw new InvalidRequestException(new Phrase(
+                'The orders in the report period use different base currencies (%1): amounts cannot be added without conversion.',
+                [implode(', ', $currencies)],
+            ));
+        }
+
+        return $currencies;
+    }
+
+    /**
+     * @return array{sourceCode: string, isPreset: bool, execute: callable(ResolvedQuery): RawResult}
      */
     private function resolveExecution(Dataset $dataset, ReportRequestInterface $request): array
     {
@@ -188,6 +228,7 @@ class ReportRunner implements ReportRunnerInterface
 
                 return [
                     'sourceCode' => $preset->code,
+                    'isPreset' => true,
                     'execute' => static fn (ResolvedQuery $query): RawResult => $presetQuery->execute($request, $query),
                 ];
             }
@@ -197,6 +238,7 @@ class ReportRunner implements ReportRunnerInterface
 
         return [
             'sourceCode' => $source->getCode(),
+            'isPreset' => false,
             'execute' => static fn (ResolvedQuery $query): RawResult => $source->execute($request, $query),
         ];
     }
@@ -259,8 +301,8 @@ class ReportRunner implements ReportRunnerInterface
         }
 
         $comparisonPeriod = match ($request->getCompareTo()) {
-            CompareMode::PREVIOUS_PERIOD => $this->dateRangeResolver->previousPeriod($mainQuery->dateRange),
-            CompareMode::PREVIOUS_YEAR => $this->dateRangeResolver->previousYear($mainQuery->dateRange),
+            CompareMode::PREVIOUS_PERIOD => $this->dateRangeResolver->previousPeriod($mainQuery->dateRange, $mainQuery->scope),
+            CompareMode::PREVIOUS_YEAR => $this->dateRangeResolver->previousYear($mainQuery->dateRange, $mainQuery->scope),
             CompareMode::NONE => null,
         };
 
@@ -292,6 +334,7 @@ class ReportRunner implements ReportRunnerInterface
             sort: $query->sort,
             limit: $query->limit,
             offset: $query->offset,
+            scope: $query->scope,
         );
     }
 
@@ -307,6 +350,7 @@ class ReportRunner implements ReportRunnerInterface
             sort: $query->sort,
             limit: $limit,
             offset: $offset,
+            scope: $query->scope,
         );
     }
 

@@ -9,7 +9,6 @@ use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Dimension;
 use MageOS\AdvancedReport\Model\Definition\Metric;
-use MageOS\AdvancedReport\Model\Query\BaseCurrencyChecker;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\ReportWarningsCollector;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -18,16 +17,11 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(ReportWarningsCollector::class)]
 final class ReportWarningsCollectorTest extends TestCase
 {
-    private BaseCurrencyChecker $baseCurrencyChecker;
-
     private ReportWarningsCollector $collector;
 
     protected function setUp(): void
     {
-        $this->baseCurrencyChecker = $this->createStub(BaseCurrencyChecker::class);
-        $this->baseCurrencyChecker->method('hasMixedCurrencies')->willReturn(false);
-
-        $this->collector = new ReportWarningsCollector($this->baseCurrencyChecker);
+        $this->collector = new ReportWarningsCollector();
     }
 
     public function testItAddsWarningsForNonAdditiveDimensionsAndLowCostCoverageOnMarginMetrics(): void
@@ -70,17 +64,13 @@ final class ReportWarningsCollectorTest extends TestCase
         self::assertSame([], $warnings);
     }
 
-    public function testItAddsAWarningWhenSelectedStoresHaveDifferentBaseCurrencies(): void
+    public function testItNoLongerWarnsAboutMixedBaseCurrencies(): void
     {
-        $baseCurrencyChecker = $this->createStub(BaseCurrencyChecker::class);
-        $baseCurrencyChecker->method('hasMixedCurrencies')->willReturn(true);
-        $collector = new ReportWarningsCollector($baseCurrencyChecker);
         $dataset = $this->buildDataset(nonAdditive: false);
-        $request = $this->buildRequest([]);
 
-        $warnings = $collector->collect($dataset, $request, [], null);
+        $warnings = $this->collector->collect($dataset, $this->buildRequest([]), [], null);
 
-        self::assertCount(1, $warnings);
+        self::assertSame([], $warnings);
     }
 
     /**

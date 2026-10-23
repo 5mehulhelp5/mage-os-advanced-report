@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql;
 
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\UtcHourReaggregator;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
+use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Metric;
+use MageOS\AdvancedReport\Model\Query\DateBucketSequence;
+use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -24,7 +26,7 @@ final class UtcHourReaggregatorTest extends TestCase
         ];
 
         $result = $this->build([1 => 'Europe/Rome'])
-            ->reaggregate($rows, 'created_at', 'day', $this->metrics(), [1]);
+            ->reaggregate($rows, 'created_at', 'day', $this->metrics(), [1], 0);
 
         self::assertSame(
             [
@@ -45,7 +47,7 @@ final class UtcHourReaggregatorTest extends TestCase
         ];
 
         $result = $this->build([1 => 'Europe/Rome', 2 => 'America/New_York'])
-            ->reaggregate($rows, 'created_at', 'hour', $this->metrics(), [1, 2], 'store_id', true);
+            ->reaggregate($rows, 'created_at', 'hour', $this->metrics(), [1, 2], 0, 'store_id', true);
 
         self::assertSame(
             [
@@ -57,7 +59,7 @@ final class UtcHourReaggregatorTest extends TestCase
         );
     }
 
-    public function testItFormatsWeekMonthYearHourOfDayAndWeekdayBuckets(): void
+    public function testItReaggregatesWeekBucketsWithTheFirstDayOfWeekPassedIn(): void
     {
         // 2024-03-13 is a Wednesday
         $rows = [$this->row(['utc_hour' => '2024-03-13 10:00:00'], ['revenue' => 1, 'orders' => 1])];
@@ -69,12 +71,24 @@ final class UtcHourReaggregatorTest extends TestCase
             'weekday' => '3',
         ];
         foreach ($expected as $bucket => $value) {
-            $result = $this->build([1 => 'UTC'], '1')
-                ->reaggregate($rows, 'd', $bucket, $this->metrics(), [1]);
+            $result = $this->build([1 => 'UTC'])
+                ->reaggregate($rows, 'd', $bucket, $this->metrics(), [1], 1);
             self::assertSame($value, $result['rows'][0]['dims_raw']['d'], $bucket);
         }
-        $sunday = $this->build([1 => 'UTC'], '0')->reaggregate($rows, 'd', 'week', $this->metrics(), [1]);
+        $sunday = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'week', $this->metrics(), [1], 0);
         self::assertSame('2024-03-10', $sunday['rows'][0]['dims_raw']['d']);
+    }
+
+    public function testItProducesWeekKeysEqualToTheFilledBucketKeysWhenTheStoreFirstDayDiffersFromTheDefaultScope(): void
+    {
+        // 2024-03-13 is a Wednesday; the store week starts on Saturday (6)
+        $rows = [$this->row(['utc_hour' => '2024-03-13 10:00:00'], ['revenue' => 1, 'orders' => 1])];
+        $range = new ResolvedDateRange(new \DateTimeImmutable('2024-03-13'), new \DateTimeImmutable('2024-03-13'), false, 1);
+
+        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'week', $this->metrics(), [1], 6);
+        $filled = (new DateBucketSequence())->generate($range, Granularity::WEEK, 6);
+
+        self::assertSame($filled, [$result['rows'][0]['dims_raw']['d']]);
     }
 
     public function testItMergesMinMaxAndAdditiveAggregatesCorrectly(): void
@@ -91,7 +105,7 @@ final class UtcHourReaggregatorTest extends TestCase
             $this->row(['utc_hour' => '2024-03-10 12:00:00'], ['lo' => null, 'hi' => null, 'rev' => 1, 'cnt' => 1]),
         ];
 
-        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1]);
+        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1], 0);
 
         self::assertSame(['lo' => 3, 'hi' => 9, 'rev' => 5.0, 'cnt' => 4], $result['rows'][0]['metrics']);
     }
@@ -106,7 +120,7 @@ final class UtcHourReaggregatorTest extends TestCase
             $this->row(['utc_hour' => '2024-03-10 11:00:00'], ['orders' => 3]),
         ];
 
-        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1]);
+        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1], 0);
 
         self::assertSame(5, $result['rows'][0]['metrics']['orders']);
         self::assertSame([], $result['warnings']);
@@ -124,7 +138,7 @@ final class UtcHourReaggregatorTest extends TestCase
             $this->row(['utc_hour' => '2024-03-10 11:00:00'], ['customers' => 3, 'avg_total' => 6, 'rev' => 2]),
         ];
 
-        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1]);
+        $result = $this->build([1 => 'UTC'])->reaggregate($rows, 'd', 'day', $metrics, [1], 0);
 
         self::assertSame(
             ['customers' => null, 'avg_total' => null, 'rev' => 3],
@@ -135,13 +149,37 @@ final class UtcHourReaggregatorTest extends TestCase
         self::assertStringContainsString('Average total', $result['warnings'][1]);
     }
 
-    public function testItWarnsWhenATimezoneHasANonWholeHourOffset(): void
+    public function testItPlacesA1845UtcOrderInTheNextLocalDayForAsiaKolkata(): void
+    {
+        $rows = [
+            $this->row(['utc_hour' => '2024-03-10 18:15:00'], ['revenue' => 1, 'orders' => 1]),
+            $this->row(['utc_hour' => '2024-03-10 18:45:00'], ['revenue' => 2, 'orders' => 1]),
+        ];
+
+        $result = $this->build([1 => 'Asia/Kolkata'])->reaggregate($rows, 'd', 'day', $this->metrics(), [1], 0);
+
+        self::assertSame(['2024-03-10', '2024-03-11'], array_column(array_column($result['rows'], 'dims'), 'd'));
+    }
+
+    public function testItPlacesA1815UtcOrderInTheNextLocalDayForAsiaKathmandu(): void
+    {
+        $rows = [
+            $this->row(['utc_hour' => '2024-03-10 18:00:00'], ['revenue' => 1, 'orders' => 1]),
+            $this->row(['utc_hour' => '2024-03-10 18:15:00'], ['revenue' => 2, 'orders' => 1]),
+        ];
+
+        $result = $this->build([1 => 'Asia/Kathmandu'])->reaggregate($rows, 'd', 'day', $this->metrics(), [1], 0);
+
+        self::assertSame(['2024-03-10', '2024-03-11'], array_column(array_column($result['rows'], 'dims'), 'd'));
+    }
+
+    public function testItDoesNotWarnAboutNonWholeHourOffsetsInTheFallback(): void
     {
         $rows = [$this->row(['utc_hour' => '2024-03-10 10:00:00'], ['revenue' => 1, 'orders' => 1])];
 
-        $result = $this->build([1 => 'Asia/Kolkata'])->reaggregate($rows, 'd', 'day', $this->metrics(), [1]);
+        $result = $this->build([1 => 'Asia/Kolkata'])->reaggregate($rows, 'd', 'day', $this->metrics(), [1], 0);
 
-        self::assertCount(1, $result['warnings']);
+        self::assertSame([], $result['warnings']);
     }
 
     /**
@@ -168,24 +206,10 @@ final class UtcHourReaggregatorTest extends TestCase
     /**
      * @param array<int,string> $timezones
      */
-    private function build(array $timezones, string $firstDay = '1'): UtcHourReaggregator
+    private function build(array $timezones): UtcHourReaggregator
     {
         $map = $this->createStub(StoreTimezoneMap::class);
         $map->method('getTimezone')->willReturnCallback(static fn (int $id): string => $timezones[$id]);
-        $map->method('hasNonWholeHourOffset')->willReturnCallback(
-            static function (array $ids, \DateTimeImmutable $at) use ($timezones): bool {
-                foreach ($timezones as $tz) {
-                    if ($at->setTimezone(new \DateTimeZone($tz))->getOffset() % 3600 !== 0) {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-        );
-        $config = $this->createStub(ScopeConfigInterface::class);
-        $config->method('getValue')->willReturn($firstDay);
-
-        return new UtcHourReaggregator($map, $config);
+        return new UtcHourReaggregator($map);
     }
 }

@@ -33,12 +33,14 @@ class DimensionExpressionBuilder
      * @param DimensionSelection $selection
      * @param int[] $storeIds
      * @param AdapterInterface $connection
+     * @param int $firstDayOfWeek
      */
     public function build(
         Dataset $dataset,
         DimensionSelection $selection,
         array $storeIds,
-        AdapterInterface $connection
+        AdapterInterface $connection,
+        int $firstDayOfWeek
     ): string {
         $dimension = $dataset->getDimension($selection->code);
         $expression = $this->fieldExpressionResolver->resolve($dataset, $dimension->fieldCode, $connection);
@@ -51,7 +53,8 @@ class DimensionExpressionBuilder
             $bucket,
             $expression,
             $this->storeIdExpression($dataset, $connection),
-            $storeIds
+            $storeIds,
+            $firstDayOfWeek
         );
     }
 

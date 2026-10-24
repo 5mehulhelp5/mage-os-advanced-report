@@ -426,3 +426,4 @@
 "The ""%1"" value must be an integer.","Il valore ""%1"" deve essere un intero."
 "The ""%1"" value must be a boolean.","Il valore ""%1"" deve essere un booleano."
 "The orders in the report period use different base currencies (%1): amounts cannot be added without conversion.","Gli ordini del periodo del report usano valute di base diverse (%1): gli importi non possono essere sommati senza conversione."
+"The report database connection ""%1"" is not available.","La connessione al database dei report ""%1"" non è disponibile."

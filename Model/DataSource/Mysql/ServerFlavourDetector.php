@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Cache\FrontendInterface;
 use MageOS\AdvancedReport\Model\Cache\Type as CacheType;
-use MageOS\AdvancedReport\Model\Config;
 
 /**
  * Detects (once, then cached) whether the report connection talks to MySQL or MariaDB.
@@ -19,13 +17,11 @@ class ServerFlavourDetector
     private ?ServerFlavour $flavour = null;
 
     /**
-     * @param ResourceConnection $resourceConnection
-     * @param Config $config
+     * @param ReportConnection $reportConnection
      * @param FrontendInterface $cache
      */
     public function __construct(
-        private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
         private readonly FrontendInterface $cache,
     ) {
     }
@@ -42,7 +38,7 @@ class ServerFlavourDetector
         $cached = $this->cache->load(self::CACHE_KEY);
         $flavour = \is_string($cached) ? ServerFlavour::tryFrom($cached) : null;
         if ($flavour === null) {
-            $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+            $connection = $this->reportConnection->get();
             $version = (string) $connection->fetchOne('SELECT VERSION()');
             $flavour = stripos($version, 'MariaDB') !== false ? ServerFlavour::MariaDb : ServerFlavour::Mysql;
             $this->cache->save($flavour->value, self::CACHE_KEY, [CacheType::CACHE_TAG]);

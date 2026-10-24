@@ -7,6 +7,7 @@ namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneStrategy;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneSupportDetector;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
@@ -94,8 +95,7 @@ final class TimezoneStrategyTest extends TestCase
         return new TimezoneStrategy(
             $map,
             $this->createStub(TimezoneSupportDetector::class),
-            $resource,
-            $config
+            new ReportConnection($resource, $config),
         );
     }
 }

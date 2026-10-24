@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\DataSourceInterface;
-use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\FieldType;
@@ -39,8 +37,7 @@ class MysqlDataSource implements DataSourceInterface
     private const string CODE = 'mysql';
 
     public function __construct(
-        private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
         private readonly SelectBuilder $selectBuilder,
         private readonly Guardrails $guardrails,
         private readonly TimezoneStrategy $timezoneStrategy,
@@ -100,17 +97,17 @@ class MysqlDataSource implements DataSourceInterface
     {
         $query = $this->capLimit($resolvedQuery);
         $strategy = $this->timezoneStrategy->getName();
-        $sqlMs = 0.0;
+        $stats = ['ms' => 0.0, 'count' => 0];
 
         if ($strategy === TimezoneSupportDetector::STRATEGY_UTC_HOUR_FALLBACK
             && $this->selectBuilder->hasDateBucketDimension($query)
         ) {
-            [$rows, $count, $warnings] = $this->executeFallback($query, $sqlMs);
+            [$rows, $count, $warnings] = $this->executeFallback($query, $stats);
         } else {
-            [$rows, $count, $warnings] = $this->executeNormal($query, $sqlMs);
+            [$rows, $count, $warnings] = $this->executeNormal($query, $stats);
         }
 
-        $totalsRow = $this->fetchRow($this->selectBuilder->buildTotals($query), $sqlMs);
+        $totalsRow = $this->fetchRow($this->selectBuilder->buildTotals($query), $stats);
         $truncation = $this->guardrails->getTruncationWarning($count);
         if ($truncation !== null) {
             $warnings[] = (string) $truncation;
@@ -121,35 +118,54 @@ class MysqlDataSource implements DataSourceInterface
             ['metrics' => $this->castMetrics($query, $totalsRow)],
             $count,
             $warnings,
-            ['timezone_strategy' => $strategy, 'sql_time_ms' => $sqlMs]
+            ['timezone_strategy' => $strategy, 'sql_time_ms' => $stats['ms'], 'sql_query_count' => $stats['count']]
         );
     }
 
     /**
      * @param ResolvedQuery $query
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      * @return array{0: array<int,Row>, 1: int, 2: string[]}
      */
-    private function executeNormal(ResolvedQuery $query, float &$sqlMs): array
+    private function executeNormal(ResolvedQuery $query, array &$stats): array
     {
         $rows = array_map(
             fn (array $fetched): array => $this->toRow($query, $fetched),
-            $this->fetchAll($this->selectBuilder->buildPage($query), $sqlMs)
+            $this->fetchAll($this->selectBuilder->buildPage($query), $stats)
         );
-        $count = (int) $this->fetchOne($this->selectBuilder->buildRowCount($query), $sqlMs);
 
-        return [$rows, $count, []];
+        return [$rows, $this->resolveRowCount($query, \count($rows), $stats), []];
+    }
+
+    /**
+     * Derives the total from an incomplete page (or skips counting when not wanted) instead of
+     * running the row count query.
+     *
+     * @param ResolvedQuery $query
+     * @param int $pageSize
+     * @param array{ms: float, count: int} $stats
+     */
+    private function resolveRowCount(ResolvedQuery $query, int $pageSize, array &$stats): int
+    {
+        if (!$query->countRows) {
+            return $pageSize;
+        }
+        if ($query->limit !== null && $pageSize < $query->limit && ($query->offset === 0 || $pageSize > 0)) {
+            return $query->offset + $pageSize;
+        }
+
+        return (int) $this->fetchOne($this->selectBuilder->buildRowCount($query), $stats);
     }
 
     /**
      * @param ResolvedQuery $query
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      * @return array{0: array<int,Row>, 1: int, 2: string[]}
      */
-    private function executeFallback(ResolvedQuery $query, float &$sqlMs): array
+    private function executeFallback(ResolvedQuery $query, array &$stats): array
     {
         $fallback = $this->selectBuilder->buildUtcHourFallback($query);
-        $fetched = $this->fetchAll($fallback->select, $sqlMs);
+        $fetched = $this->fetchAll($fallback->select, $stats);
         $warnings = [];
         if (\count($fetched) > $fallback->rowCap) {
             array_pop($fetched);
@@ -312,7 +328,8 @@ class MysqlDataSource implements DataSourceInterface
             $query->sort,
             $query->limit === null ? $max : min($query->limit, $max),
             $query->offset,
-            $query->scope
+            $query->scope,
+            $query->countRows
         );
     }
 
@@ -363,41 +380,41 @@ class MysqlDataSource implements DataSourceInterface
 
     /**
      * @param Select $select
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      * @return array<int,array<string,mixed>>
      */
-    private function fetchAll(Select $select, float &$sqlMs): array
+    private function fetchAll(Select $select, array &$stats): array
     {
         return $this->run(
             $select,
-            $sqlMs,
+            $stats,
             static fn (AdapterInterface $c, string $sql, array $bind): array => $c->fetchAll($sql, $bind)
         );
     }
 
     /**
      * @param Select $select
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      * @return array<string,mixed>
      */
-    private function fetchRow(Select $select, float &$sqlMs): array
+    private function fetchRow(Select $select, array &$stats): array
     {
         return $this->run(
             $select,
-            $sqlMs,
+            $stats,
             static fn (AdapterInterface $c, string $sql, array $bind): array => $c->fetchRow($sql, $bind) ?: []
         );
     }
 
     /**
      * @param Select $select
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      */
-    private function fetchOne(Select $select, float &$sqlMs): mixed
+    private function fetchOne(Select $select, array &$stats): mixed
     {
         return $this->run(
             $select,
-            $sqlMs,
+            $stats,
             static fn (AdapterInterface $c, string $sql, array $bind): mixed => $c->fetchOne($sql, $bind)
         );
     }
@@ -406,20 +423,21 @@ class MysqlDataSource implements DataSourceInterface
      * Runs the select with the timeout applied, accumulating its duration and mapping driver errors.
      *
      * @param Select $select
-     * @param float $sqlMs
+     * @param array{ms: float, count: int} $stats
      * @param callable $statement
      * @throws Throwable
      */
-    private function run(Select $select, float &$sqlMs, callable $statement): mixed
+    private function run(Select $select, array &$stats, callable $statement): mixed
     {
-        $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        $connection = $this->reportConnection->get();
         $started = hrtime(true);
         try {
             return $statement($connection, $this->guardrails->applyTimeout((string) $select), $select->getBind());
         } catch (Throwable $error) {
             throw $this->guardrails->mapException($error);
         } finally {
-            $sqlMs += (hrtime(true) - $started) / 1e6;
+            $stats['ms'] += (hrtime(true) - $started) / 1e6;
+            ++$stats['count'];
         }
     }
 }

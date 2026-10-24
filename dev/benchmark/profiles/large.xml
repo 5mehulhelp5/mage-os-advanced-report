@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright 2015 Adobe
+ * MageOS_AdvancedReport benchmark profile "large": derived from setup/performance-toolkit/profiles/ce, without the config and indexer sections
+ * so generate-fixtures never changes the admin security config, carrier config or indexer modes of the target database.
+ * All Rights Reserved.
+ */
+-->
+<config xmlns:xi="http://www.w3.org/2001/XInclude">
+    <profile>
+        <admin_users>1</admin_users><!-- Number of admin users to generate -->
+        <websites>2</websites> <!-- Number of websites to generate -->
+        <store_groups>2</store_groups> <!--Number of stores-->
+        <store_views>2</store_views> <!-- Number of store views -->
+        <sources>1</sources> <!-- Number of sources to generate -->
+        <stocks>1</stocks> <!-- Number of stocks to generate -->
+        <assign_entities_to_all_websites>1</assign_entities_to_all_websites> <!-- Whether to assign all products per each website -->
+        <simple_products>50000</simple_products> <!-- Simple products count -->
+        <configurable_products> <!-- Configurable product -->
+            <config>
+                <attributes>
+                    <attribute>
+                        <options>3</options>
+                        <swatches>image</swatches>
+                    </attribute>
+                    <attribute>
+                        <options>8</options>
+                    </attribute>
+                </attributes>
+                <sku>Configurable Product %s</sku>
+                <products>1000</products>
+            </config>
+        </configurable_products>
+        <product-images>
+            <images-count>2000</images-count>
+            <images-per-product>3</images-per-product>
+        </product-images>
+        <categories>3000</categories> <!-- Number of categories to generate -->
+        <categories_nesting_level>5</categories_nesting_level> <!-- Nesting level for categories -->
+        <customers>25000</customers> <!-- Number of customers to generate -->
+
+        <catalog_price_rules>20</catalog_price_rules> <!-- Number of catalog price rules -->
+        <cart_price_rules>20</cart_price_rules> <!-- Number of cart price rules -->
+        <cart_price_rules_floor>2</cart_price_rules_floor>
+        <coupon_codes>20</coupon_codes> <!-- Number of coupon codes -->
+
+        <product_attribute_sets>50</product_attribute_sets> <!-- Number of product attribute sets -->
+        <product_attribute_sets_attributes>20</product_attribute_sets_attributes> <!-- Number of attributes per set -->
+        <product_attribute_sets_attributes_values>15</product_attribute_sets_attributes_values> <!-- Number of values per attribute -->
+
+        <order_quotes_enable>true</order_quotes_enable>
+        <order_simple_product_count_from>2</order_simple_product_count_from>
+        <order_simple_product_count_to>2</order_simple_product_count_to>
+        <orders>500000</orders> <!-- Orders TOTAL target, not an increment: seeding small then medium only adds the difference -->
+
+        <tax_rates_file>tax_rates.csv</tax_rates_file> <!-- Tax rates file in fixtures directory-->
+
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/searchTermsLarge.xml" />
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/attributeSets.xml" />
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/searchConfig.xml" />
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/customerConfig.xml" />
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/description.xml" />
+        <xi:include href="../../../../../../../setup/performance-toolkit/config/shortDescription.xml" />
+    </profile>
+</config>

@@ -20,8 +20,8 @@ use Magento\TestFramework\Helper\Bootstrap;
  * Creating a store runs DDL (sales sequence tables), which implicitly commits the DbIsolation
  * transaction. Call these methods from `setUpBeforeClass()` only: it runs before the transaction
  * starts. Each entity is looked up by code and created only when missing, so repeated calls and
- * repeated runs return the same ids. The stores persist in the test DB (`make integration-reset`
- * removes them). Store ids are unknown at attribute time: pass them from code, or move an order
+ * repeated runs return the same ids. The stores persist in the test DB until the integration
+ * sandbox is reinstalled. Store ids are unknown at attribute time: pass them from code, or move an order
  * with the `Fixture/SetOrderStore` fixture inside the test method.
  */
 final class StoreProvisioner

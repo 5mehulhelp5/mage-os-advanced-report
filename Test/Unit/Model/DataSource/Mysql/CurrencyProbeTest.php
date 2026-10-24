@@ -10,6 +10,7 @@ use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CurrencyProbe;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Field;
@@ -44,7 +45,7 @@ final class CurrencyProbeTest extends TestCase
         $resource = $this->createStub(ResourceConnection::class);
         $resource->method('getConnectionByName')->willReturn($adapter);
 
-        $probe = new CurrencyProbe($resource, $this->createStub(Config::class), $builder, $this->createStub(Guardrails::class));
+        $probe = new CurrencyProbe(new ReportConnection($resource, $this->createStub(Config::class)), $builder, $this->createStub(Guardrails::class));
 
         self::assertSame([], $probe->getBaseCurrencies($this->query(false)));
     }
@@ -88,7 +89,7 @@ final class CurrencyProbeTest extends TestCase
             $guardrails->method('applyTimeout')->willReturnArgument(0);
         }
 
-        return new CurrencyProbe($resource, $config, $builder, $guardrails);
+        return new CurrencyProbe(new ReportConnection($resource, $config), $builder, $guardrails);
     }
 
     private function query(bool $withCurrency): ResolvedQuery

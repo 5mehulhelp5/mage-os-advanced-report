@@ -13,6 +13,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\DimensionExpressionBuilder;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\MysqlDataSource;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneStrategy;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneSupportDetector;
@@ -74,8 +75,7 @@ final class MysqlDataSourceTest extends TestCase
         $this->reaggregator = $this->createMock(UtcHourReaggregator::class);
         $this->labelResolver = $this->createMock(LabelResolverInterface::class);
         $this->source = new MysqlDataSource(
-            $resource,
-            $config,
+            new ReportConnection($resource, $config),
             $this->selectBuilder,
             $this->guardrails,
             $this->strategy,
@@ -126,7 +126,7 @@ final class MysqlDataSourceTest extends TestCase
         $this->selectBuilder->method('buildRowCount')->willReturn($this->select('COUNT'));
         $this->connection->expects(self::once())->method('fetchAll')
             ->with('T:PAGE', ['b' => 1])
-            ->willReturn([['country' => 'IT', 'net' => '12.50', 'orders' => '3']]);
+            ->willReturn(array_fill(0, 10, ['country' => 'IT', 'net' => '12.50', 'orders' => '3']));
         $this->connection->expects(self::once())->method('fetchRow')
             ->with('T:TOTALS', ['b' => 1])
             ->willReturn(['net' => '12.50', 'orders' => '3']);
@@ -141,6 +141,93 @@ final class MysqlDataSourceTest extends TestCase
         self::assertSame(['country' => 'IT'], $result->rows[0]['dims_raw']);
         self::assertSame(10, $this->captured()->limit);
         self::assertSame(20, $this->captured()->offset);
+    }
+
+    public function testItSkipsTheRowCountQueryWhenTheFirstPageIsIncomplete(): void
+    {
+        $this->stubNormalPath([['net' => '1'], ['net' => '2']]);
+        $this->connection->expects(self::never())->method('fetchOne');
+
+        $result = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 10));
+
+        self::assertSame(2, $result->totalRowCount);
+    }
+
+    public function testItDerivesTheTotalRowCountFromTheOffsetWhenALaterPageIsIncomplete(): void
+    {
+        $this->stubNormalPath([['net' => '1'], ['net' => '2'], ['net' => '3']]);
+        $this->connection->expects(self::never())->method('fetchOne');
+
+        $result = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 10, offset: 20));
+
+        self::assertSame(23, $result->totalRowCount);
+    }
+
+    public function testItRunsTheRowCountQueryWhenThePageIsFull(): void
+    {
+        $this->stubNormalPath([['net' => '1'], ['net' => '2']], '42');
+        $this->connection->expects(self::once())->method('fetchOne');
+
+        $result = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 2));
+
+        self::assertSame(42, $result->totalRowCount);
+    }
+
+    public function testItRunsTheRowCountQueryWhenALaterPageIsEmpty(): void
+    {
+        $this->stubNormalPath([], '42');
+        $this->connection->expects(self::once())->method('fetchOne');
+
+        $result = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 10, offset: 20));
+
+        self::assertSame(42, $result->totalRowCount);
+    }
+
+    public function testItNeverRunsTheRowCountQueryWhenCountingIsDisabled(): void
+    {
+        $this->stubNormalPath([['net' => '1'], ['net' => '2']], '42');
+        $this->connection->expects(self::never())->method('fetchOne');
+
+        $result = $this->source->execute(
+            $this->request(['net'], []),
+            $this->query(['net'], [], limit: 2, countRows: false)
+        );
+
+        self::assertSame(2, $result->totalRowCount);
+    }
+
+    public function testItReportsTheNumberOfExecutedSqlStatementsInTheResultMeta(): void
+    {
+        $this->stubNormalPath([['net' => '1'], ['net' => '2']], '42');
+        $full = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 2));
+        $incomplete = $this->source->execute($this->request(['net'], []), $this->query(['net'], [], limit: 10));
+
+        self::assertSame(3, $full->meta['sql_query_count']);
+        self::assertSame(2, $incomplete->meta['sql_query_count']);
+    }
+
+    public function testItReportsTheExecutedSqlStatementsOfTheFallbackPath(): void
+    {
+        $strategy = $this->createMock(TimezoneStrategy::class);
+        $strategy->method('getName')->willReturn(TimezoneSupportDetector::STRATEGY_UTC_HOUR_FALLBACK);
+        $this->stubFallback();
+        $this->connection->method('fetchAll')->willReturn([]);
+        $this->connection->method('fetchRow')->willReturn([]);
+        $this->reaggregator->method('reaggregate')->willReturn(['rows' => [], 'warnings' => []]);
+        $source = $this->withStrategy($strategy);
+
+        $result = $source->execute($this->request(['net'], ['country']), $this->query(['net'], ['country']));
+
+        self::assertSame(2, $result->meta['sql_query_count']);
+    }
+
+    public function testItKeepsTheCountRowsFlagWhenCappingTheLimit(): void
+    {
+        $this->stubNormalPath([]);
+
+        $this->source->execute($this->request(['net'], []), $this->query(['net'], [], countRows: false));
+
+        self::assertFalse($this->captured()->countRows);
     }
 
     public function testItAppliesTheMaxRowsCapToTheNormalPath(): void
@@ -298,7 +385,7 @@ final class MysqlDataSourceTest extends TestCase
 
     public function testItPropagatesGuardrailWarnings(): void
     {
-        $this->stubNormalPath([], '250');
+        $this->stubNormalPath(array_fill(0, 100, ['net' => '1']), '250');
         $this->guardrails->expects(self::once())->method('getTruncationWarning')->with(250)->willReturn(__('Results were truncated'));
 
         $result = $this->source->execute($this->request(['net'], []), $this->query(['net'], []));
@@ -348,8 +435,7 @@ final class MysqlDataSourceTest extends TestCase
         $config->method('getConnectionName')->willReturn('reporting');
 
         return new MysqlDataSource(
-            $resource,
-            $config,
+            new ReportConnection($resource, $config),
             $this->selectBuilder,
             $this->guardrails,
             $strategy,
@@ -439,6 +525,7 @@ final class MysqlDataSourceTest extends TestCase
         ?int $limit = null,
         int $offset = 0,
         array $storeIds = [],
+        bool $countRows = true,
     ): ResolvedQuery {
         return new ResolvedQuery(
             $this->dataset(),
@@ -450,7 +537,8 @@ final class MysqlDataSourceTest extends TestCase
             $sort,
             $limit,
             $offset,
-            new ReportScope(null, 'UTC', 0, ['UTC'])
+            new ReportScope(null, 'UTC', 0, ['UTC']),
+            $countRows
         );
     }
 

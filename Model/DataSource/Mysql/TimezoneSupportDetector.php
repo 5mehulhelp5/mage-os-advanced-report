@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Cache\FrontendInterface;
 use MageOS\AdvancedReport\Model\Cache\Type as CacheType;
-use MageOS\AdvancedReport\Model\Config;
 
 /**
  * Detects (once, then cached) whether the report connection can convert named timezones.
@@ -23,13 +21,11 @@ class TimezoneSupportDetector
     private ?string $strategy = null;
 
     /**
-     * @param ResourceConnection $resourceConnection
-     * @param Config $config
+     * @param ReportConnection $reportConnection
      * @param FrontendInterface $cache
      */
     public function __construct(
-        private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
         private readonly FrontendInterface $cache,
     ) {
     }
@@ -48,7 +44,7 @@ class TimezoneSupportDetector
             return $this->strategy = $cached;
         }
 
-        $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        $connection = $this->reportConnection->get();
         $supported = (int) $connection->fetchOne(
             "SELECT CONVERT_TZ('2000-01-01 00:00:00','UTC','Europe/Rome') IS NOT NULL"
         ) === 1;

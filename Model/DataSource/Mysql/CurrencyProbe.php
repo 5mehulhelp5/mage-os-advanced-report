@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
-use Magento\Framework\App\ResourceConnection;
-use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\CurrencyProbeInterface;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
@@ -17,8 +15,7 @@ use Throwable;
 class CurrencyProbe implements CurrencyProbeInterface
 {
     public function __construct(
-        private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
         private readonly SelectBuilder $selectBuilder,
         private readonly Guardrails $guardrails,
     ) {
@@ -36,7 +33,7 @@ class CurrencyProbe implements CurrencyProbeInterface
         }
 
         $select = $this->selectBuilder->buildCurrencyProbe($query);
-        $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        $connection = $this->reportConnection->get();
         try {
             $codes = $connection->fetchCol($this->guardrails->applyTimeout((string) $select), $select->getBind());
         } catch (Throwable $error) {

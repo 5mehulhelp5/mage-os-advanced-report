@@ -14,6 +14,8 @@ use Magento\Framework\Controller\ResultInterface;
 use Magento\Framework\Exception\NotFoundException;
 use Magento\Framework\Serialize\Serializer\Json;
 use Magento\Framework\Stdlib\DateTime\DateTime;
+use MageOS\AdvancedReport\Model\DataSource\QueryTimeoutException;
+use MageOS\AdvancedReport\Model\DataSource\ReportConnectionUnavailableException;
 use MageOS\AdvancedReport\Model\Export\CsvExporter;
 use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
@@ -62,15 +64,24 @@ class Export extends Action implements HttpPostActionInterface
 
         try {
             $request = $this->requestFactory->fromArray($this->decodePayload());
-            $csv = $this->exporter->export($request, (bool) $this->getRequest()->getParam('include_totals'));
+            $path = $this->exporter->exportToFile($request, (bool) $this->getRequest()->getParam('include_totals'));
             $fileName = \sprintf('advanced-report-%s-%s.csv', $request->getDataset(), $this->dateTime->gmtDate('Ymd-His'));
 
             return $this->fileFactory->create(
                 $fileName,
-                ['type' => 'string', 'value' => $csv, 'rm' => true],
-                DirectoryList::VAR_IMPORT_EXPORT,
+                ['type' => 'filename', 'value' => $path, 'rm' => true],
+                DirectoryList::VAR_DIR,
                 'text/csv'
             );
+        } catch (QueryTimeoutException $e) {
+            $this->messageManager->addErrorMessage($e->getMessage());
+
+            return $this->resultRedirectFactory->create()->setPath('*/*/index');
+        } catch (ReportConnectionUnavailableException $e) {
+            $this->errorLogger->log($e, 'advanced_report_export');
+            $this->messageManager->addErrorMessage($e->getMessage());
+
+            return $this->resultRedirectFactory->create()->setPath('*/*/index');
         } catch (\Throwable $e) {
             $this->errorLogger->log($e, 'advanced_report_export');
             $this->messageManager->addErrorMessage(__('The report could not be exported.'));

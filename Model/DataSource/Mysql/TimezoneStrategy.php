@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
 use InvalidArgumentException;
-use Magento\Framework\App\ResourceConnection;
-use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
 
 /**
@@ -23,8 +21,7 @@ class TimezoneStrategy
     public function __construct(
         private readonly StoreTimezoneMap $timezoneMap,
         private readonly TimezoneSupportDetector $detector,
-        private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
     ) {
     }
 
@@ -102,7 +99,7 @@ class TimezoneStrategy
 
     private function convert(string $createdAt, string $timezone): string
     {
-        $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        $connection = $this->reportConnection->get();
 
         return \sprintf("CONVERT_TZ(%s, 'UTC', %s)", $createdAt, $connection->quote($timezone));
     }

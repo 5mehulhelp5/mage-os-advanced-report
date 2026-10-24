@@ -4,76 +4,84 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Export;
 
+use Magento\Framework\App\Filesystem\DirectoryList;
+use Magento\Framework\Filesystem;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
+use MageOS\AdvancedReport\Model\Query\ResultCacheWriteGuard;
 
 /**
  * Exports a report request as CSV: translated headers, raw unformatted values, optional totals row.
- * The report is run page by page through the runner and capped by the `max_rows` setting.
+ * The report is run once through the runner, capped by the `max_rows` setting.
  */
 class CsvExporter
 {
-    private const int PAGE_SIZE = 1000;
+    private const string EXPORT_DIRECTORY = 'export/mageos_advancedreport';
     private const string FORMULA_PREFIXES = '=+-@';
 
     /**
      * @param ReportRunnerInterface $reportRunner
      * @param ReportRequestFactory $requestFactory
      * @param Config $config
+     * @param ResultCacheWriteGuard $writeGuard
+     * @param Filesystem $filesystem
      */
     public function __construct(
         private readonly ReportRunnerInterface $reportRunner,
         private readonly ReportRequestFactory $requestFactory,
         private readonly Config $config,
+        private readonly ResultCacheWriteGuard $writeGuard,
+        private readonly Filesystem $filesystem,
     ) {
     }
 
     /**
-     * Returns the CSV document for the given request.
+     * Writes the CSV for the given request to a temporary file and returns its path relative to the
+     * var directory; the caller streams it and deletes it.
+     *
+     * The report runs once (capped by `max_rows`) without storing its result in the result cache.
+     * The report runs before the file is opened and a partially written file is removed on failure.
      */
-    public function export(ReportRequestInterface $request, bool $includeTotals): string
+    public function exportToFile(ReportRequestInterface $request, bool $includeTotals): string
     {
-        $stream = fopen('php://temp', 'r+');
-        if ($stream === false) {
-            throw new \RuntimeException('Unable to open a temporary stream for the CSV export.');
-        }
-        $maxRows = $this->config->getMaxRows();
-        $written = 0;
-        $layout = null;
-        $lastResult = null;
+        $result = $this->writeGuard->runWithoutStore(
+            fn (): ReportResultInterface => $this->reportRunner->run($this->buildExportRequest($request))
+        );
+        $rows = $result->getRows();
+        $layout = $this->buildLayout($result, $rows);
 
-        do {
-            $limit = min(self::PAGE_SIZE, $maxRows - $written);
-            $lastResult = $this->reportRunner->run($this->buildPageRequest($request, $limit, $written));
-            $rows = $lastResult->getRows();
-            $layout ??= $this->buildLayout($lastResult, $rows);
-            if ($written === 0) {
-                fputcsv($stream, $layout['headers'], ',', '"', '');
-            }
+        $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $directory->create(self::EXPORT_DIRECTORY);
+        $path = self::EXPORT_DIRECTORY . '/' . bin2hex(random_bytes(8)) . '.csv';
+        $file = $directory->openFile($path, 'w');
+
+        try {
+            $file->writeCsv($layout['headers'], ',', '"');
             foreach ($rows as $row) {
-                fputcsv($stream, $this->buildRow($layout, $row), ',', '"', '');
+                $file->writeCsv($this->buildRow($layout, $row), ',', '"');
             }
-            $written += \count($rows);
-        } while (\count($rows) === $limit && $written < $maxRows);
+            if ($includeTotals) {
+                $file->writeCsv($this->buildTotalsRow($layout, $result->getTotals()), ',', '"');
+            }
+        } catch (\Throwable $e) {
+            $file->close();
+            $directory->delete($path);
 
-        if ($includeTotals) {
-            fputcsv($stream, $this->buildTotalsRow($layout, $lastResult->getTotals()), ',', '"', '');
+            throw $e;
         }
-        rewind($stream);
-        $csv = (string) stream_get_contents($stream);
-        fclose($stream);
+        $file->close();
 
-        return $csv;
+        return $path;
     }
 
-    private function buildPageRequest(ReportRequestInterface $request, int $limit, int $offset): ReportRequestInterface
+    private function buildExportRequest(ReportRequestInterface $request): ReportRequestInterface
     {
         $payload = $this->requestFactory->toArray($request);
-        $payload['limit'] = $limit;
-        $payload['offset'] = $offset;
+        $payload['limit'] = $this->config->getMaxRows();
+        $payload['offset'] = 0;
         $payload['bypassCache'] = false;
 
         return $this->requestFactory->fromArray($payload);

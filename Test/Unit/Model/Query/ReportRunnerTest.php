@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
+use ArrayObject;
 use DateInterval;
 use DateTimeImmutable;
+use LogicException;
 use Magento\Framework\Locale\ResolverInterface as LocaleResolverInterface;
+use Magento\Framework\Lock\LockManagerInterface;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\DataSourceInterface;
 use MageOS\AdvancedReport\Api\PresetQueryInterface;
@@ -47,11 +50,15 @@ use MageOS\AdvancedReport\Model\Query\ReportWarningsCollector;
 use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\ResultCache;
+use MageOS\AdvancedReport\Model\Query\ResultCacheLock;
+use MageOS\AdvancedReport\Model\Query\ResultCacheWriteGuard;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use MageOS\AdvancedReport\Model\Query\SourceResolver;
 use MageOS\AdvancedReport\Model\Security\AclContext;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\MockObject\Rule\InvocationOrder;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 #[CoversClass(ReportRunner::class)]
 final class ReportRunnerTest extends TestCase
@@ -150,6 +157,49 @@ final class ReportRunnerTest extends TestCase
             'queryPlanner' => $queryPlanner,
             'sourceResolver' => $sourceResolver,
             'resultCache' => $resultCache,
+        ])->run($this->buildRequest());
+    }
+
+    public function testItPassesThePlannedScopeContextToTheResultCacheKey(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $scope = $mainQuery->scope;
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => null]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+        $baseCurrencyChecker = $this->createStub(BaseCurrencyChecker::class);
+        $baseCurrencyChecker->method('getCurrencyCodes')->willReturn(['EUR', 'USD']);
+
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->expects(self::once())->method('buildKey')->with(
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            [
+                'timezone' => $scope->timezone,
+                'timezones' => $scope->timezones,
+                'firstDayOfWeek' => $scope->firstDayOfWeek,
+                'baseCurrencies' => ['EUR', 'USD'],
+            ],
+        )->willReturn('cache-key');
+        $resultCache->method('load')->willReturn([
+            'columns' => [], 'rows' => [], 'totals' => ['metrics' => []], 'totalRowCount' => 0,
+            'range' => null, 'comparisonRange' => null, 'currencyCode' => 'USD', 'warnings' => [],
+            'source' => 'mysql', 'generatedAt' => '2026-09-25T10:00:00+00:00', 'meta' => [],
+        ]);
+
+        $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'resultCache' => $resultCache,
+            'baseCurrencyChecker' => $baseCurrencyChecker,
         ])->run($this->buildRequest());
     }
 
@@ -283,6 +333,86 @@ final class ReportRunnerTest extends TestCase
         self::assertSame(500, $seenQueries[1]->limit);
         self::assertSame(0, $seenQueries[1]->offset);
         self::assertArrayHasKey('comparison', $result->getTotals());
+    }
+
+    public function testItNeverRunsARowCountQueryForTheComparisonPeriod(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $comparisonQuery = $this->buildResolvedQuery(['net_sales'], range: $this->resolvedRange('2026-08-01', '2026-08-25'));
+        $seenQueries = [];
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturnCallback(
+            function (ReportRequestInterface $req, ResolvedQuery $query) use (&$seenQueries): RawResult {
+                $seenQueries[] = $query;
+
+                return new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 100.0]], totalRowCount: 0);
+            }
+        );
+
+        $this->buildCurrencyRunner($mainQuery, $comparisonQuery, $dataSource)
+            ->run($this->buildRequest(compareTo: CompareMode::PREVIOUS_PERIOD));
+
+        self::assertTrue($seenQueries[0]->countRows);
+        self::assertFalse($seenQueries[1]->countRows);
+    }
+
+    public function testItSumsSqlStatementsAndSqlTimeOfTheMainAndComparisonPeriods(): void
+    {
+        $results = [
+            new RawResult([], ['metrics' => ['net_sales' => 1.0]], 0, [], ['sql_query_count' => 3, 'sql_time_ms' => 10.5]),
+            new RawResult([], ['metrics' => ['net_sales' => 1.0]], 0, [], ['sql_query_count' => 2, 'sql_time_ms' => 4.5]),
+        ];
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturnOnConsecutiveCalls(...$results);
+        $probe = $this->createStub(CurrencyProbeInterface::class);
+        $probe->method('getBaseCurrencies')->willReturn(['EUR']);
+
+        $result = $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            $this->buildResolvedQuery(['net_sales'], range: $this->resolvedRange('2026-08-01', '2026-08-25')),
+            $dataSource,
+            ['currencyProbe' => $probe],
+        )->run($this->buildRequest(compareTo: CompareMode::PREVIOUS_PERIOD));
+
+        self::assertSame(7, $result->getMeta()['sql_query_count']);
+        self::assertSame(15.0, $result->getMeta()['sql_time_ms']);
+    }
+
+    public function testItReportsMissingSqlMetaAsZero(): void
+    {
+        $result = $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            null,
+            $this->buildCurrencyDataSource(),
+        )->run($this->buildRequest());
+
+        self::assertSame(1, $result->getMeta()['sql_query_count']);
+        self::assertSame(0.0, $result->getMeta()['sql_time_ms']);
+    }
+
+    public function testItReportsZeroSqlStatementsForAResultServedFromCache(): void
+    {
+        $payload = $this->cachePayload();
+        $payload['meta'] = ['timezone_strategy' => 'convert_tz', 'sql_query_count' => 5, 'sql_time_ms' => 12.5];
+        $resultCache = $this->createStub(ResultCache::class);
+        $resultCache->method('buildKey')->willReturn('cache-key');
+        $resultCache->method('load')->willReturn($payload);
+
+        $result = $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            null,
+            $this->buildCurrencyDataSource(),
+            ['resultCache' => $resultCache],
+        )->run($this->buildRequest());
+
+        self::assertTrue($result->isCached());
+        self::assertSame(0, $result->getMeta()['sql_query_count']);
+        self::assertSame(0.0, $result->getMeta()['sql_time_ms']);
+        self::assertSame(5, $result->getMeta()['cached_sql_query_count']);
+        self::assertSame(12.5, $result->getMeta()['cached_sql_time_ms']);
+        self::assertSame('convert_tz', $result->getMeta()['timezone_strategy']);
     }
 
     public function testItResolvesTheComparisonAlignmentPeriodWithTheMainQueryScopeInTheRunner(): void
@@ -622,6 +752,202 @@ final class ReportRunnerTest extends TestCase
         }
     }
 
+    public function testItAcquiresALockNamedAfterTheCacheKeyOnACacheMiss(): void
+    {
+        $lockManager = $this->createMock(LockManagerInterface::class);
+        $resultCacheLock = new ResultCacheLock($lockManager, new ResultCacheWriteGuard());
+        $lockName = $resultCacheLock->getLockName('cache-key');
+        $lockManager->expects(self::once())->method('lock')->with($lockName)->willReturn(true);
+        $lockManager->expects(self::once())->method('unlock')->with($lockName)->willReturn(true);
+
+        $result = $this->buildLockRunner($resultCacheLock, $this->executingSource(self::once()))->run($this->buildRequest());
+
+        self::assertFalse($result->isCached());
+        self::assertStringContainsString('cache-key', $lockName);
+    }
+
+    public function testItReturnsTheCachedResultSavedByAnotherProcessWhileWaitingForTheLock(): void
+    {
+        $lockManager = $this->createStub(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturn(true);
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->method('buildKey')->willReturn('cache-key');
+        $resultCache->expects(self::exactly(2))->method('load')->willReturnOnConsecutiveCalls(null, $this->cachePayload());
+        $resultCache->expects(self::never())->method('save');
+
+        $result = $this->buildLockRunner(
+            new ResultCacheLock($lockManager, new ResultCacheWriteGuard()),
+            $this->executingSource(self::never()),
+            $resultCache,
+        )->run($this->buildRequest());
+
+        self::assertTrue($result->isCached());
+    }
+
+    public function testItReleasesTheLockWhenTheReportExecutionThrows(): void
+    {
+        $lockManager = $this->createMock(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturn(true);
+        $lockManager->expects(self::once())->method('unlock')->willReturn(true);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource())->run($this->buildRequest());
+    }
+
+    public function testItDoesNotCacheAResultWhenTheExecutionThrows(): void
+    {
+        $lockManager = $this->createStub(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturn(true);
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->method('buildKey')->willReturn('cache-key');
+        $resultCache->method('load')->willReturn(null);
+        $resultCache->expects(self::never())->method('save');
+
+        try {
+            $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource(), $resultCache)->run($this->buildRequest());
+            self::fail('Expected RuntimeException');
+        } catch (RuntimeException) {
+            // expected
+        }
+    }
+
+    public function testItExecutesWithoutTheLockWhenTheLockCannotBeAcquiredInTime(): void
+    {
+        $lockManager = $this->createMock(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturn(false);
+        $lockManager->expects(self::never())->method('unlock');
+
+        $result = $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+            ->run($this->buildRequest());
+
+        self::assertFalse($result->isCached());
+    }
+
+    public function testItDoesNotLockWhenTheRequestBypassesTheCache(): void
+    {
+        $lockManager = $this->createMock(LockManagerInterface::class);
+        $lockManager->expects(self::never())->method('lock');
+        $lockManager->expects(self::never())->method('unlock');
+
+        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+            ->run($this->buildRequest(bypassCache: true));
+    }
+
+    public function testItExecutesWithoutTheLockWhenAcquiringTheLockThrows(): void
+    {
+        $lockManager = $this->createMock(LockManagerInterface::class);
+        $lockManager->method('lock')->willThrowException(new RuntimeException('deadlock'));
+        $lockManager->expects(self::never())->method('unlock');
+
+        $result = $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+            ->run($this->buildRequest());
+
+        self::assertFalse($result->isCached());
+    }
+
+    public function testItRethrowsTheExecutionErrorEvenWhenReleasingTheLockFails(): void
+    {
+        $lockManager = $this->createStub(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturn(true);
+        $lockManager->method('unlock')->willThrowException(new LogicException('unlock failed'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('boom');
+
+        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource())->run($this->buildRequest());
+    }
+
+    public function testItLocksANestedRunUnderItsOwnKeyWhileTheOuterLockIsHeld(): void
+    {
+        $locked = [];
+        $lockManager = $this->createStub(LockManagerInterface::class);
+        $lockManager->method('lock')->willReturnCallback(static function (string $name) use (&$locked): bool {
+            $locked[] = $name;
+
+            return true;
+        });
+        $resultCacheLock = new ResultCacheLock($lockManager, new ResultCacheWriteGuard());
+        $resultCache = $this->createStub(ResultCache::class);
+        $resultCache->method('buildKey')->willReturnOnConsecutiveCalls('outer-key', 'inner-key');
+        $resultCache->method('load')->willReturn(null);
+
+        /** @var ArrayObject<string, ReportRunner> $holder */
+        $holder = new ArrayObject();
+        $nestedRequest = $this->buildRequest();
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $calls = 0;
+        $dataSource->method('execute')->willReturnCallback(
+            function () use ($holder, &$calls, $nestedRequest): RawResult {
+                if (++$calls === 1) {
+                    ($holder['runner'] ?? throw new LogicException('runner missing'))->run($nestedRequest);
+                }
+
+                return new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 1.0]], totalRowCount: 0);
+            },
+        );
+        $holder['runner'] = $this->buildLockRunner($resultCacheLock, $dataSource, $resultCache);
+
+        $holder['runner']->run($this->buildRequest());
+
+        self::assertSame(
+            [$resultCacheLock->getLockName('outer-key'), $resultCacheLock->getLockName('inner-key')],
+            $locked,
+        );
+    }
+
+    private function executingSource(InvocationOrder $expectedCalls): DataSourceInterface
+    {
+        $dataSource = $this->createMock(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->expects($expectedCalls)->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 100.0]], totalRowCount: 0),
+        );
+
+        return $dataSource;
+    }
+
+    private function failingSource(): DataSourceInterface
+    {
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willThrowException(new RuntimeException('boom'));
+
+        return $dataSource;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function cachePayload(): array
+    {
+        return [
+            'columns' => [], 'rows' => [], 'totals' => ['metrics' => []], 'totalRowCount' => 0,
+            'range' => null, 'comparisonRange' => null, 'currencyCode' => 'USD', 'warnings' => [],
+            'source' => 'mysql', 'generatedAt' => '2026-09-25T10:00:00+00:00', 'meta' => [],
+        ];
+    }
+
+    private function buildLockRunner(
+        ResultCacheLock $resultCacheLock,
+        DataSourceInterface $dataSource,
+        ?ResultCache $resultCache = null,
+    ): ReportRunner {
+        if ($resultCache === null) {
+            $resultCache = $this->createStub(ResultCache::class);
+            $resultCache->method('buildKey')->willReturn('cache-key');
+            $resultCache->method('load')->willReturn(null);
+        }
+
+        return $this->buildCurrencyRunner(
+            $this->buildResolvedQuery(['net_sales']),
+            null,
+            $dataSource,
+            ['resultCache' => $resultCache, 'resultCacheLock' => $resultCacheLock],
+        );
+    }
+
     private function buildCurrencyDataSource(): DataSourceInterface
     {
         $dataSource = $this->createStub(DataSourceInterface::class);
@@ -669,11 +995,12 @@ final class ReportRunnerTest extends TestCase
             $this->dateRangeResolver,
             $overrides['dateBucketPostProcessor'] ?? new DateBucketPostProcessor(new DateBucketFiller(new DateBucketSequence()), new LabelResolverPool()),
             $overrides['warningsCollector'] ?? $this->warningsCollector,
-            $this->baseCurrencyChecker,
+            $overrides['baseCurrencyChecker'] ?? $this->baseCurrencyChecker,
             $overrides['monetaryRequestDetector'] ?? $this->monetaryRequestDetector,
             $overrides['currencyProbe'] ?? $this->currencyProbe,
             $this->localeResolver,
             $overrides['aclContext'] ?? $this->aclContext,
+            $overrides['resultCacheLock'] ?? new ResultCacheLock($this->createStub(LockManagerInterface::class), new ResultCacheWriteGuard()),
         );
     }
 
@@ -754,6 +1081,7 @@ final class ReportRunnerTest extends TestCase
             baseProvider: null,
             implicitFilters: [],
             fields: [
+                Dataset::FIELD_CREATED_AT => new Field(Dataset::FIELD_CREATED_AT, 'Created at', FieldType::DATE),
                 Dataset::FIELD_BASE_CURRENCY => new Field(
                     Dataset::FIELD_BASE_CURRENCY,
                     'Base currency',

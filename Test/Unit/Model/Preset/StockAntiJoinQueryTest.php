@@ -12,6 +12,7 @@ use MageOS\AdvancedReport\Api\LabelResolverInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CountedStatusCondition;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Dimension;
 use MageOS\AdvancedReport\Model\Label\DimensionLabelApplier;
@@ -155,6 +156,14 @@ final class StockAntiJoinQueryTest extends TestCase
         self::assertStringContainsString('ORDER BY `stock_value_cost` DESC, `sku` ASC', $sql);
     }
 
+    public function testItReportsTheStatementsRunByStockAntiJoinPresetQueries(): void
+    {
+        $result = $this->executeWithRow(['sku' => 'A', 'qty_on_hand' => '2']);
+
+        self::assertSame(2, $result->meta['sql_query_count']);
+        self::assertIsFloat($result->meta['sql_time_ms']);
+    }
+
     public function testItDoesNotExposeProductIdAsAMetric(): void
     {
         $result = $this->executeWithRow(['sku' => 'A', 'product_id' => '5', 'qty_on_hand' => '2']);
@@ -233,7 +242,7 @@ final class StockAntiJoinQueryTest extends TestCase
         $applier = new DimensionLabelApplier(new LabelResolverPool([ProductNameLabelResolver::class => $resolver]));
 
         return $this->query = new $class(
-            $resource,
+            new ReportConnection($resource, $config),
             $config,
             $stock,
             $guardrails,

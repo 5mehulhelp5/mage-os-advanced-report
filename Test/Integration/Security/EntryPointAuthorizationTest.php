@@ -7,10 +7,12 @@ namespace MageOS\AdvancedReport\Test\Integration\Security;
 use Magento\Authorization\Test\Fixture\Role;
 use Magento\Backend\Model\Auth\Session as AuthSession;
 use Magento\Framework\Acl\Builder as AclBuilder;
+use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\App\Request\Http as HttpRequest;
 use Magento\Framework\App\Response\Http as HttpResponse;
 use Magento\Framework\App\State;
 use Magento\Framework\Data\Form\FormKey;
+use Magento\Framework\Filesystem;
 use Magento\TestFramework\Bootstrap as TestBootstrap;
 use Magento\TestFramework\Fixture\AppArea;
 use Magento\TestFramework\Fixture\Config;
@@ -80,12 +82,16 @@ final class EntryPointAuthorizationTest extends AbstractBackendController
     public function testItDoesNotExportAReportWithoutTheDatasetCorePermission(): void
     {
         $this->loginAs('user2');
-        $csv = Bootstrap::getObjectManager()->get(CsvExporter::class)->export(
-            Bootstrap::getObjectManager()->get(ReportRequestFactory::class)->fromArray(
+        $objectManager = Bootstrap::getObjectManager();
+        $path = $objectManager->get(CsvExporter::class)->exportToFile(
+            $objectManager->get(ReportRequestFactory::class)->fromArray(
                 json_decode($this->salesRequest(), true)
             ),
             false
         );
+        $varDirectory = $objectManager->get(Filesystem::class)->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $csv = $varDirectory->readFile($path);
+        $varDirectory->delete($path);
         $this->assertNotSame('', $csv, 'Positive control: the role may export the dataset');
 
         $this->resetDispatch();

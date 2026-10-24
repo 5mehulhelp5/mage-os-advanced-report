@@ -44,12 +44,14 @@ class LowStockCoverageQuery implements PresetQueryInterface
 
     public function execute(ReportRequestInterface $request, ResolvedQuery $resolvedQuery): RawResult
     {
-        $stockRows = $this->loadStock($request, $resolvedQuery);
+        $stock = $this->loadStock($request, $resolvedQuery);
+        $stockRows = $stock->rows;
+        $statements = (int) ($stock->meta['sql_query_count'] ?? 0);
 
         $warnings = [];
         $unitsSold = null;
         if ($this->datasetAccess->isAllowed($this->definitionRegistry->getDataset(self::SALES_DATASET))) {
-            $unitsSold = $this->loadUnitsSold($request);
+            $unitsSold = $this->loadUnitsSold($request, $statements);
         } else {
             $warnings[] = (string) new Phrase(
                 'Sales data is not available with your permissions: coverage columns are empty.'
@@ -73,13 +75,13 @@ class LowStockCoverageQuery implements PresetQueryInterface
             ]],
             \count($rows),
             $warnings,
+            ['sql_query_count' => $statements],
         );
     }
 
     /**
-     * @return array<int,array{dims: array<string,string>, dims_raw: array<string,?string>, metrics: array<string,int|float|null>}>
      */
-    private function loadStock(ReportRequestInterface $request, ResolvedQuery $resolvedQuery): array
+    private function loadStock(ReportRequestInterface $request, ResolvedQuery $resolvedQuery): RawResult
     {
         $source = $this->dataSourcePool->get(self::STOCK_SOURCE)
             ?? throw new NoSourceAvailableException(new Phrase('The MySQL data source is not available.'));
@@ -97,7 +99,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
             $resolvedQuery->scope,
         );
 
-        return $source->execute($request, $stockQuery)->rows;
+        return $source->execute($request, $stockQuery);
     }
 
     /**
@@ -119,9 +121,10 @@ class LowStockCoverageQuery implements PresetQueryInterface
     }
 
     /**
+     * @param int $statements Incremented by the SQL statements of the nested sales report
      * @return array<string,float> Units sold in the window, by simple SKU.
      */
-    private function loadUnitsSold(ReportRequestInterface $request): array
+    private function loadUnitsSold(ReportRequestInterface $request, int &$statements): array
     {
         $salesRequest = $this->reportRequestFactory->fromArray([
             'dataset' => self::SALES_DATASET,
@@ -133,7 +136,9 @@ class LowStockCoverageQuery implements PresetQueryInterface
         ]);
 
         $unitsSold = [];
-        foreach ($this->reportRunner->run($salesRequest)->getRows() as $row) {
+        $salesResult = $this->reportRunner->run($salesRequest);
+        $statements += (int) ($salesResult->getMeta()['sql_query_count'] ?? 0);
+        foreach ($salesResult->getRows() as $row) {
             $unitsSold[(string) $row['dims_raw']['sku']] = (float) ($row['metrics']['units_sold'] ?? 0);
         }
 

@@ -7,6 +7,9 @@ namespace MageOS\AdvancedReport\Test\Unit\Model\ResourceModel;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
+use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\ResourceModel\OrderStatusLabels;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -30,15 +33,22 @@ final class OrderStatusLabelsTest extends TestCase
         $this->connection->method('quoteInto')->willReturnCallback(
             static fn (string $text, mixed $value): string => str_replace('?', (string) $value, $text)
         );
-        $resource = $this->createStub(ResourceConnection::class);
-        $resource->method('getConnection')->willReturn($this->connection);
+        $this->select->method('__toString')->willReturn('SQL');
+        $this->select->method('getBind')->willReturn([]);
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->expects(self::never())->method('getConnection');
+        $resource->method('getConnectionByName')->willReturn($this->connection);
         $resource->method('getTableName')->willReturnArgument(0);
-        $this->subject = new OrderStatusLabels($resource);
+        $config = $this->createStub(Config::class);
+        $config->method('getConnectionName')->willReturn('report');
+        $guardrails = $this->createStub(Guardrails::class);
+        $guardrails->method('applyTimeout')->willReturnCallback(static fn (string $sql): string => 'T:' . $sql);
+        $this->subject = new OrderStatusLabels($resource, new ReportConnection($resource, $config), $guardrails);
     }
 
     public function testItReturnsAdminLabelsKeyedByStatusWhenNoStoreIsGiven(): void
     {
-        $this->connection->expects(self::once())->method('fetchPairs')->with($this->select)
+        $this->connection->expects(self::once())->method('fetchPairs')->with('T:SQL', [])
             ->willReturn(['pending' => 'Pending', 'closed' => 'Closed']);
 
         self::assertSame(['pending' => 'Pending', 'closed' => 'Closed'], $this->subject->getLabels(null));

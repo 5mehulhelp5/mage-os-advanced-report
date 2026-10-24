@@ -8,6 +8,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneSupportDetector;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -63,6 +64,6 @@ final class TimezoneSupportDetectorTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('getConnectionName')->willReturn('default');
 
-        return new TimezoneSupportDetector($resource, $config, $cache);
+        return new TimezoneSupportDetector(new ReportConnection($resource, $config), $cache);
     }
 }

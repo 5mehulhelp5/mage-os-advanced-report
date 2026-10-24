@@ -49,6 +49,19 @@ final class LowStockCoverageQueryTest extends TestCase
         self::assertSame([], $result->warnings);
     }
 
+    public function testItSumsTheStockAndNestedSalesReportStatements(): void
+    {
+        $sales = $this->createStub(ReportResultInterface::class);
+        $sales->method('getRows')->willReturn([]);
+        $sales->method('getMeta')->willReturn(['sql_query_count' => 4]);
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturn($sales);
+
+        $result = $this->createQuery([['A', 10.0]], $runner, true)->execute($this->request([]), $this->resolvedQuery([]));
+
+        self::assertSame(7, $result->meta['sql_query_count']);
+    }
+
     public function testItReturnsNullCoverageForProductsWithoutSales(): void
     {
         $runner = $this->createStub(ReportRunnerInterface::class);
@@ -188,7 +201,7 @@ final class LowStockCoverageQueryTest extends TestCase
             static function (ReportRequestInterface $request, ResolvedQuery $query) use ($rows, $captured): RawResult {
                 $captured?->append($query);
 
-                return new RawResult($rows, ['metrics' => []], \count($rows));
+                return new RawResult($rows, ['metrics' => []], \count($rows), [], ['sql_query_count' => 3]);
             }
         );
         $pool = $this->createStub(DataSourcePool::class);

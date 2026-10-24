@@ -420,6 +420,45 @@ bin/magento advanced-report:explain --preset=sales_overview --from=2026-01-01 --
 
 `--from` and `--to` (Y-m-d, `from <= to`) are required, `--preset` is optional (default: all presets).
 
+Every statement of a request is explained: `page`, `row_count` (only run when the page is full), `totals`, `comparison_page`,
+`comparison_totals`, `currency_probe`, the timezone `fallback` variant and the preset's own query. Further options:
+
+- `--compare=previous_period|previous_year`: include the comparison statements (default: the preset's own comparison).
+- `--analyze`: use `EXPLAIN ANALYZE`. **This executes every statement** (bounded by the configured query timeout).
+- `--format=table|json`: `json` prints a list of `{preset, statement, sql, plan}` entries.
+
+## `advanced-report:benchmark`
+
+Read-only benchmark of the report scenarios (it only runs the report queries; it never writes data). Each scenario is run
+`--repeat` times cold (cache bypassed) and `--repeat` times warm; the output lists cold median and p95, SQL statements, rows
+examined, warm median and statements (0 when served from cache) and peak memory. The default matrix covers the dated presets
+(`sales_overview`, `new_vs_returning`, `product_performance`, `customer_value`) over 30 days and 12 months, all stores and one
+store, with and without comparison, the dateless presets (`stock_value`, `low_stock_coverage`, `dead_stock`) and a few
+expensive scenarios.
+
+```bash
+bin/magento advanced-report:benchmark --profile-label=medium --repeat=3 --format=markdown
+bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_days --budget-ms=3000
+bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_days --concurrency=8
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--preset=CODE` | Preset, repeatable (default: the full matrix) |
+| `--range=last_30_days\|last_12_months\|custom` | Date range; `custom` needs `--from` and `--to` (Y-m-d) |
+| `--store=ID` | Store id, repeatable (default: the matrix stores) |
+| `--compare=none\|previous_period\|previous_year` | Comparison override |
+| `--repeat=N` | Cold and warm runs per scenario (default 3) |
+| `--format=table\|json\|markdown` | Output format (default `table`) |
+| `--output=FILE` | Write the output to a file relative to `var/` |
+| `--budget-ms=N` | Scenarios whose cold median exceeds N ms are listed and the exit code is 1 |
+| `--profile-label=NAME` | Label of the data profile (small, medium, large) shown in the header |
+| `--concurrency=N` | Run exactly one scenario in N (1-32) parallel worker processes and report how many executed SQL or were served from cache. **Cleans the whole `advanced_report` cache type.** |
+
+`--worker` and `--start-at` are internal options of the concurrency mode. The command runs under a trusted CLI authorization
+(no admin session), see [security](docs/security.md#trusted-cli-authorization-benchmark). The seed, procedure, budgets and the
+results table are in [docs/performance.md](docs/performance.md).
+
 ## `advanced-report:inventory`
 
 Prints the metric inventory: for every metric of every dataset its kind, aggregate, expression, joins, fan-out (row multiplication) risk and context dependencies. Output is deterministic, so regenerating it for unchanged definitions gives an empty diff.
@@ -430,26 +469,30 @@ bin/magento advanced-report:inventory --format=json --dataset=sales_orders
 bin/magento advanced-report:inventory --output=docs/metric-inventory.md
 ```
 
-`--format` (`md` default, or `json`), `--dataset` (default: all) and `--output` (file path, relative to the current directory, instead of stdout) are optional. Regenerate `docs/metric-inventory.md` whenever definitions change with `make command advanced-report:inventory opts="--output=app/code/MageOS/AdvancedReport/docs/metric-inventory.md"` (do not redirect stdout: make echoes the recipe and the container TTY adds CRLF).
+`--format` (`md` default, or `json`), `--dataset` (default: all) and `--output` (file path, relative to the current directory, instead of stdout) are optional. Regenerate `docs/metric-inventory.md` whenever definitions change with `bin/magento advanced-report:inventory --output=app/code/MageOS/AdvancedReport/docs/metric-inventory.md` from the Magento root (prefer `--output` over redirecting stdout).
 
 ## Performance notes
 
-- **Live queries, no aggregation tables**: there is no indexer or cron to maintain and data is always current, but
-  the cost of a report grows with the number of rows in the selected period. Each report runs a page query, a
-  totals query and a row count (plus the same for the comparison period); only the joins needed by the selected
-  fields are added, and formulas are computed in PHP on the aggregated rows.
-- **Indexes**: `setup:upgrade` adds `sales_order (customer_id, created_at)`, `sales_order (customer_email,
-  created_at)` and `sales_order_item (product_id)`, used by the new vs returning, customer and stock reports; date
-  filters use the native `created_at` indexes. Check index usage of presets and custom definitions with
-  `advanced-report:explain` on production-size data.
-- **Result cache**: results are stored in the `advanced_report` cache type. The key includes the request, the data
-  source, a hash of the semantic layer, the counted statuses, the resolved dates and the locale, so a change to any
-  of them never serves stale data. Periods that include today expire after `cache_ttl_open_period` (5 minutes by
-  default), closed periods after `cache_ttl_closed_period` (24 hours). The `Refresh` button bypasses the cache; saving
-  the configuration section or `bin/magento cache:clean advanced_report` empties it.
-- **Guardrails**: every query carries a timeout (`MAX_EXECUTION_TIME` hint on MySQL, `SET STATEMENT
-  max_statement_time` on MariaDB) set by `query_timeout_ms`; on timeout the admin sees a message suggesting a shorter
-  period or fewer dimensions instead of a hanging page. Results above `max_rows` are truncated with a warning.
+Reports are live queries (no indexer, no aggregation tables): the cost grows with the rows of the selected period and
+pagination does not reduce the database work. Details live in three documents:
+
+- [Performance](docs/performance.md): statements per report shape, safeguards (timeout on every statement, `max_rows`,
+  granularity limits, export limits, connection errors), the benchmark procedure (performance toolkit seed,
+  `advanced-report:benchmark`, `advanced-report:explain`), budgets, the results table and the known bottlenecks.
+- [Cache](docs/cache.md): key components, TTLs, invalidation, the stampede lock and the freshness per report category.
+- [Indexes](docs/indexes.md): rationale of every index, removable indexes and the installation time / maintenance window.
+
+In short:
+
+- **Indexes**: `setup:upgrade` adds `sales_order (customer_id, created_at)`, `sales_order (customer_email, created_at)`,
+  `sales_order_item (product_id)` and `sales_order_item (product_id, order_id)`; date filters use the native indexes. Check
+  index usage with `advanced-report:explain` on production-size data.
+- **Result cache**: the `advanced_report` cache type, TTL-only freshness: periods including today expire after
+  `cache_ttl_open_period` (5 minutes), all others (and reports without a date range, such as stock) after
+  `cache_ttl_closed_period` (24 hours). `Refresh`, saving the configuration section and `bin/magento cache:clean advanced_report` bypass or empty it.
+- **Guardrails**: every report statement carries a timeout (`query_timeout_ms`; on timeout the admin sees a message
+  instead of a hanging page), results above `max_rows` are truncated with a warning, the CSV export is one execution
+  capped at `max_rows`, and an unreachable report connection returns HTTP 503.
 - **Read replica**: set `performance/connection_name` to a read-only connection declared in `app/etc/env.php` to keep
   report queries away from the checkout database.
 - **Database timezone tables**: load them (`mysql_tzinfo_to_sql`) when stores use a non-UTC timezone, so hourly and
@@ -458,6 +501,8 @@ bin/magento advanced-report:inventory --output=docs/metric-inventory.md
 - **Heavier reports**: new vs returning customers (first-order lookup, limited to 12 months on MySQL), customer value
   (`COUNT DISTINCT` over emails), sales by category (one row per product category) and the dead stock / never sold
   presets (anti-joins on `sales_order_item`). Prefer shorter periods on very large catalogs or order tables.
+- **After upgrading**: constructors changed, so regenerate the generated code (`setup:di:compile` in production, clear
+  `generated/` in developer mode) and run `setup:upgrade` for the new indexes (risk R33 in the [risk register](docs/risk-register.md)).
 
 ## Security and permissions
 
@@ -483,6 +528,9 @@ The full list with severity and owner is in the [risk register](docs/risk-regist
 - [Metric definitions](docs/metric-definitions.md): business definition of every metric (formula, cancel/refund treatment, currency, date attribution, additivity, known limits) with the integration tests that prove it, and physical vs reserved vs salable quantities.
 - [Time and currency](docs/time-and-currency.md): timezone used for filtering, grouping, comparison and display, DST, the fallback without timezone tables, the currency of every financial metric, rejection rules and rounding.
 - [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
+- [Performance](docs/performance.md): statements per report, safeguards, benchmark procedure and results table, bottlenecks, async evaluation.
+- [Cache](docs/cache.md): cache key, TTLs, invalidation, stampede lock and freshness per report category.
+- [Indexes](docs/indexes.md): rationale of every index, removable indexes, installation time and maintenance window.
 - [Security](docs/security.md): ACL model per entry point and dataset, data classification, cache and logging.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.
 - [Compatibility](docs/compatibility.md): supported Magento, PHP and database versions and the CI job enforcing each.

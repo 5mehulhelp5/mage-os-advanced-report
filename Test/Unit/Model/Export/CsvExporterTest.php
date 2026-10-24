@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Export;
 
+use Magento\Framework\App\Filesystem\DirectoryList;
+use Magento\Framework\Filesystem;
+use Magento\Framework\Filesystem\Directory\WriteInterface as DirectoryWrite;
+use Magento\Framework\Filesystem\File\WriteInterface as FileWrite;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
@@ -11,6 +15,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Export\CsvExporter;
 use MageOS\AdvancedReport\Model\Query\ReportRequestFactory;
 use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
+use MageOS\AdvancedReport\Model\Query\ResultCacheWriteGuard;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
@@ -28,6 +33,15 @@ final class CsvExporterTest extends TestCase
     private ReportRequestFactory&Stub $factory;
     private Config&Stub $config;
     private ReportRequestInterface&Stub $request;
+    private ResultCacheWriteGuard $guard;
+    private DirectoryWrite&Stub $directory;
+    /** @var array<int,array<int,string>> */
+    private array $written = [];
+    private ?string $openedPath = null;
+    /** @var string[] */
+    private array $deleted = [];
+    private bool $closed = false;
+    private ?\Throwable $writeFailure = null;
 
     protected function setUp(): void
     {
@@ -47,6 +61,36 @@ final class CsvExporterTest extends TestCase
         $this->config = $this->createStub(Config::class);
         $this->config->method('getMaxRows')->willReturn(50000);
         $this->request = $this->createStub(ReportRequestInterface::class);
+        $this->guard = new ResultCacheWriteGuard();
+        $this->directory = $this->createStub(DirectoryWrite::class);
+        $file = $this->createStub(FileWrite::class);
+        $file->method('writeCsv')->willReturnCallback(function (array $line): int {
+            if ($this->writeFailure !== null) {
+                throw $this->writeFailure;
+            }
+            $this->written[] = $line;
+
+            return 1;
+        });
+        $file->method('close')->willReturnCallback(function (): bool {
+            $this->closed = true;
+
+            return true;
+        });
+        $this->directory->method('openFile')->willReturnCallback(
+            function (string $path) use ($file): FileWrite {
+                $this->openedPath = $path;
+
+                return $file;
+            }
+        );
+        $this->directory->method('delete')->willReturnCallback(
+            function (string $path): bool {
+                $this->deleted[] = $path;
+
+                return true;
+            }
+        );
     }
 
     public function testItWritesTranslatedHeadersFollowedByRawMetricValues(): void
@@ -55,33 +99,105 @@ final class CsvExporterTest extends TestCase
             $this->row('Pending', 'pending', 3, 1234.5),
         ]));
 
-        $csv = $this->parse($this->exporter()->export($this->request, false));
+        $this->exporter()->exportToFile($this->request, false);
+        $csv = $this->written;
 
         self::assertSame(['Status', 'Status (ID)', 'Orders', 'Net sales'], $csv[0]);
         self::assertSame(['Pending', 'pending', '3', '1234.5'], $csv[1]);
         self::assertCount(2, $csv);
     }
 
-    public function testItPagesThroughTheRunnerUntilMaxRows(): void
+    public function testItRunsTheReportExactlyOnceForAnExport(): void
+    {
+        $runner = $this->createMock(ReportRunnerInterface::class);
+        $runner->expects(self::once())->method('run')->willReturn(
+            $this->buildResult(array_fill(0, 1500, $this->row('A', 'a', 1, 1.0)))
+        );
+
+        $this->exporter($runner)->exportToFile($this->request, false);
+
+        self::assertCount(1501, $this->written);
+    }
+
+    public function testItRequestsAtMostTheConfiguredMaximumNumberOfRows(): void
     {
         $this->config = $this->createStub(Config::class);
         $this->config->method('getMaxRows')->willReturn(1500);
-        $page = array_fill(0, 1000, $this->row('A', 'a', 1, 1.0));
-        $half = array_fill(0, 500, $this->row('A', 'a', 1, 1.0));
         $seen = [];
-        $runner = $this->createMock(ReportRunnerInterface::class);
-        $runner->expects(self::exactly(2))->method('run')->willReturnCallback(
-            function (ReportRequestInterface $request) use (&$seen, $page, $half): ReportResultInterface {
-                $seen[] = [$request->getLimit(), $request->getOffset(), $request->isBypassCache()];
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturnCallback(
+            function (ReportRequestInterface $request) use (&$seen): ReportResultInterface {
+                $seen = [$request->getLimit(), $request->getOffset(), $request->isBypassCache()];
 
-                return $this->buildResult(\count($seen) === 1 ? $page : $half);
+                return $this->buildResult([]);
             }
         );
 
-        $csv = $this->parse($this->exporter($runner)->export($this->request, false));
+        $this->exporter($runner)->exportToFile($this->request, false);
 
-        self::assertSame([[1000, 0, false], [500, 1000, false]], $seen);
-        self::assertCount(1501, $csv);
+        self::assertSame([1500, 0, false], $seen);
+    }
+
+    public function testItWritesTheCsvToATemporaryFileInTheVarDirectory(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([]));
+        $filesystem = $this->createMock(Filesystem::class);
+        $filesystem->expects(self::once())->method('getDirectoryWrite')
+            ->with(DirectoryList::VAR_DIR)->willReturn($this->directory);
+
+        $path = $this->exporter(null, $filesystem)->exportToFile($this->request, false);
+
+        self::assertMatchesRegularExpression('#^export/mageos_advancedreport/[0-9a-f]{16}\.csv$#', $path);
+        self::assertSame($path, $this->openedPath);
+        self::assertTrue($this->closed);
+    }
+
+    public function testItDoesNotSaveTheExportResultToTheResultCache(): void
+    {
+        $suppressed = null;
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturnCallback(
+            function () use (&$suppressed): ReportResultInterface {
+                $suppressed = $this->guard->isStoreSuppressed();
+
+                return $this->buildResult([]);
+            }
+        );
+
+        $this->exporter($runner)->exportToFile($this->request, false);
+
+        self::assertTrue($suppressed);
+        self::assertFalse($this->guard->isStoreSuppressed());
+    }
+
+    public function testItRemovesTheTemporaryFileWhenWritingTheCsvFails(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([$this->row('A', 'a', 1, 1.0)]));
+        $this->writeFailure = new \RuntimeException('disk full');
+
+        try {
+            $this->exporter()->exportToFile($this->request, false);
+            self::fail('The write failure must be rethrown.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('disk full', $e->getMessage());
+        }
+
+        self::assertSame([$this->openedPath], $this->deleted);
+        self::assertTrue($this->closed);
+    }
+
+    public function testItDoesNotCreateAFileWhenTheReportFails(): void
+    {
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willThrowException(new \RuntimeException('boom'));
+
+        try {
+            $this->exporter($runner)->exportToFile($this->request, false);
+            self::fail('The report failure must be rethrown.');
+        } catch (\RuntimeException) {
+            self::assertNull($this->openedPath);
+            self::assertFalse($this->guard->isStoreSuppressed());
+        }
     }
 
     public function testItAppendsTheTotalsRowWhenRequested(): void
@@ -91,7 +207,8 @@ final class CsvExporterTest extends TestCase
             ['metrics' => ['orders' => 3, 'net_sales' => 10.0]],
         ));
 
-        $csv = $this->parse($this->exporter()->export($this->request, true));
+        $this->exporter()->exportToFile($this->request, true);
+        $csv = $this->written;
 
         self::assertSame(['Total', '', '3', '10'], $csv[2]);
     }
@@ -105,7 +222,8 @@ final class CsvExporterTest extends TestCase
         ];
         $this->runner->method('run')->willReturn($this->buildResult([$row], [], true));
 
-        $csv = $this->parse($this->exporter()->export($this->request, false));
+        $this->exporter()->exportToFile($this->request, false);
+        $csv = $this->written;
 
         self::assertSame(
             ['Status', 'Status (ID)', 'Orders', 'Orders (previous)', 'Orders Δ%', 'Net sales',
@@ -122,7 +240,8 @@ final class CsvExporterTest extends TestCase
             $this->row('@cmd', 'y', 1, 1.0),
         ]));
 
-        $csv = $this->parse($this->exporter()->export($this->request, false));
+        $this->exporter()->exportToFile($this->request, false);
+        $csv = $this->written;
 
         self::assertSame("'=SUM(A1)", $csv[1][0]);
         self::assertSame("'@cmd", $csv[2][0]);
@@ -157,21 +276,13 @@ final class CsvExporterTest extends TestCase
         return $result;
     }
 
-    /**
-     * @return array<int,array<int,string|null>>
-     */
-    private function parse(string $csv): array
+    private function exporter(?ReportRunnerInterface $runner = null, ?Filesystem $filesystem = null): CsvExporter
     {
-        $rows = [];
-        foreach (explode("\n", rtrim($csv, "\n")) as $line) {
-            $rows[] = str_getcsv($line, ',', '"', '');
+        if ($filesystem === null) {
+            $filesystem = $this->createStub(Filesystem::class);
+            $filesystem->method('getDirectoryWrite')->willReturn($this->directory);
         }
 
-        return $rows;
-    }
-
-    private function exporter(?ReportRunnerInterface $runner = null): CsvExporter
-    {
-        return new CsvExporter($runner ?? $this->runner, $this->factory, $this->config);
+        return new CsvExporter($runner ?? $this->runner, $this->factory, $this->config, $this->guard, $filesystem);
     }
 }

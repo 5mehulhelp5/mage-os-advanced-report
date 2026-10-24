@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Preset;
 
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
@@ -12,6 +11,7 @@ use MageOS\AdvancedReport\Api\PresetQueryInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CountedStatusCondition;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Label\DimensionLabelApplier;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
@@ -31,7 +31,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
     private const string DEFAULT_SORT = 'stock_value_cost';
 
     public function __construct(
-        protected readonly ResourceConnection $resourceConnection,
+        protected readonly ReportConnection $reportConnection,
         protected readonly Config $config,
         protected readonly StockSelectProvider $stockSelectProvider,
         protected readonly Guardrails $guardrails,
@@ -46,6 +46,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
         $page = $this->getSelect($resolvedQuery);
         $totals = $this->totalsSelect($connection, $this->baseSelect($connection, $resolvedQuery));
 
+        $started = hrtime(true);
         try {
             $fetched = $connection->fetchAll($this->guardrails->applyTimeout((string) $page), $page->getBind());
             $totalsRow = $connection->fetchRow($this->guardrails->applyTimeout((string) $totals), $totals->getBind())
@@ -53,6 +54,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
         } catch (\Throwable $error) {
             throw $this->guardrails->mapException($error);
         }
+        $sqlMs = (hrtime(true) - $started) / 1e6;
 
         $count = (int) ($totalsRow['row_count'] ?? 0);
         $warnings = [];
@@ -72,6 +74,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
             ]],
             $count,
             $warnings,
+            ['sql_query_count' => 2, 'sql_time_ms' => $sqlMs],
         );
     }
 
@@ -128,7 +131,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
 
     private function getConnection(): AdapterInterface
     {
-        return $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        return $this->reportConnection->get();
     }
 
     private function baseSelect(AdapterInterface $connection, ResolvedQuery $resolvedQuery): Select
@@ -197,7 +200,8 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
             $resolvedQuery->sort,
             $resolvedQuery->limit,
             $resolvedQuery->offset,
-            $resolvedQuery->scope
+            $resolvedQuery->scope,
+            $resolvedQuery->countRows
         );
     }
 

@@ -17,6 +17,7 @@ use MageOS\AdvancedReport\Api\Data\ReportResultInterface;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Controller\Adminhtml\Report\Data;
 use MageOS\AdvancedReport\Model\DataSource\QueryTimeoutException;
+use MageOS\AdvancedReport\Model\DataSource\ReportConnectionUnavailableException;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\ModuleGuard;
@@ -146,6 +147,16 @@ final class DataTest extends TestCase
         $this->runner->method('run')->willThrowException(new QueryTimeoutException(new Phrase('Too slow.')));
 
         $this->assertError(504, 'Too slow.');
+    }
+
+    public function testItReturns503WithTheConnectionMessageWhenTheReportConnectionIsUnavailable(): void
+    {
+        $error = new ReportConnectionUnavailableException(new Phrase('The report database connection "x" is not available.'));
+        $this->runner->method('run')->willThrowException($error);
+        $this->logger = $this->createMock(ErrorLogger::class);
+        $this->logger->expects(self::once())->method('log')->with($error, 'advanced_report_data');
+
+        $this->assertError(503, 'The report database connection "x" is not available.');
     }
 
     public function testItReturns500WithoutExposingInternalsAndLogsTheException(): void

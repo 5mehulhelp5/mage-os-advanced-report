@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\ResourceModel;
 
 use Magento\Framework\App\ResourceConnection;
-use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\ResourceModel\CustomerOrderNames;
 use MageOS\AdvancedReport\Test\Unit\Helper\SelectTestTrait;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -28,8 +29,8 @@ final class CustomerOrderNamesTest extends TestCase
     protected function setUp(): void
     {
         $adapter = $this->createSqlAdapter();
-        $adapter->method('fetchAll')->willReturnCallback(function (Select $select): array {
-            $this->queries[] = $this->normalizeSql($select);
+        $adapter->method('fetchAll')->willReturnCallback(function (string $sql): array {
+            $this->queries[] = $this->normalizeSql($sql);
 
             return $this->results[\count($this->queries) - 1] ?? [];
         });
@@ -40,7 +41,11 @@ final class CustomerOrderNamesTest extends TestCase
         $resource->method('getTableName')->willReturnArgument(0);
         $config = $this->createStub(Config::class);
         $config->method('getConnectionName')->willReturn('report');
-        $this->subject = new CustomerOrderNames($resource, $config);
+        $guardrails = $this->createStub(Guardrails::class);
+        $guardrails->method('applyTimeout')->willReturnCallback(
+            static fn (string $sql): string => 'TIMEOUT ' . $sql
+        );
+        $this->subject = new CustomerOrderNames($resource, new ReportConnection($resource, $config), $guardrails);
     }
 
     public function testItLooksUpTheRequestedEmailsWithOneQueryPerChunkOfAtMost500Emails(): void
@@ -52,6 +57,13 @@ final class CustomerOrderNamesTest extends TestCase
         self::assertCount(3, $this->queries);
         self::assertSame(500, substr_count($this->queries[0], '@x.com'));
         self::assertSame(1, substr_count($this->queries[2], '@x.com'));
+    }
+
+    public function testItAppliesTheQueryTimeoutToTheCustomerOrderNamesQuery(): void
+    {
+        $this->subject->getNames(['a@x.com']);
+
+        self::assertStringStartsWith('TIMEOUT SELECT', $this->queries[0]);
     }
 
     public function testItFiltersOnTheRawCustomerEmailColumnSoTheEmailIndexIsUsable(): void

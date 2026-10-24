@@ -17,6 +17,7 @@ use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ImplicitFilterPool;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\JoinRegistry;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\SortApplier;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneStrategy;
@@ -635,8 +636,7 @@ final class SelectBuilderTest extends TestCase
         $strategy = new TimezoneStrategy(
             $map,
             $this->createStub(TimezoneSupportDetector::class),
-            $tzResource,
-            $config
+            new ReportConnection($tzResource, $config),
         );
 
         $resolver = new FieldExpressionResolver($providers);
@@ -646,7 +646,7 @@ final class SelectBuilderTest extends TestCase
 
         return new SelectBuilder(
             $resource,
-            $config,
+            new ReportConnection($resource, $config),
             new JoinRegistry(),
             $resolver,
             $aggregates,

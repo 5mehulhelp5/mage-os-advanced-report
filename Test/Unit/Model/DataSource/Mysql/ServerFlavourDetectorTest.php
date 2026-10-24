@@ -8,6 +8,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Cache\FrontendInterface;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavour;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavourDetector;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -69,6 +70,6 @@ final class ServerFlavourDetectorTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('getConnectionName')->willReturn('default');
 
-        return new ServerFlavourDetector($resource, $config, $cache);
+        return new ServerFlavourDetector(new ReportConnection($resource, $config), $cache);
     }
 }

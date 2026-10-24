@@ -21,12 +21,14 @@ class ResultCache
      * @param Json $serializer
      * @param Config $config
      * @param ReportRequestFactory $requestFactory
+     * @param ResultCacheWriteGuard $writeGuard
      */
     public function __construct(
         private readonly FrontendInterface $cache,
         private readonly Json $serializer,
         private readonly Config $config,
         private readonly ReportRequestFactory $requestFactory,
+        private readonly ResultCacheWriteGuard $writeGuard,
     ) {
     }
 
@@ -49,6 +51,8 @@ class ResultCache
      *                                                dates for the main range and, when applicable, the comparison range.
      * @param string $locale Admin interface locale.
      * @param string $aclContext Fingerprint of the admin's allowed ACL resources.
+     * @param array<string,mixed> $scopeContext Report scope fingerprint: timezone(s), first day
+     *                                          of week and base currencies of the stores in scope.
      */
     public function buildKey(
         ReportRequestInterface $request,
@@ -58,6 +62,7 @@ class ResultCache
         array $resolvedDateRanges,
         string $locale,
         string $aclContext = '',
+        array $scopeContext = [],
     ): string {
         $normalizedRequest = $this->requestFactory->toArray($request);
         unset($normalizedRequest['bypassCache'], $normalizedRequest['source'], $normalizedRequest['storeIds']);
@@ -71,6 +76,7 @@ class ResultCache
             'resolvedDateRanges' => $resolvedDateRanges,
             'locale' => $locale,
             'aclContext' => $aclContext,
+            'scopeContext' => $this->normalizeScopeContext($scopeContext),
         ]);
 
         return hash('sha256', (string) $this->serializer->serialize($payload));
@@ -103,6 +109,10 @@ class ResultCache
      */
     public function save(string $key, array $payload, bool $openPeriod): void
     {
+        if ($this->writeGuard->isStoreSuppressed()) {
+            return;
+        }
+
         $ttl = $openPeriod ? $this->config->getCacheTtlOpenPeriod() : $this->config->getCacheTtlClosedPeriod();
 
         $this->cache->save((string) $this->serializer->serialize($payload), $key, [CacheType::CACHE_TAG], $ttl);
@@ -126,6 +136,23 @@ class ResultCache
         }
 
         return $data;
+    }
+
+    /**
+     * Sorts the list-valued scope entries so their order does not affect the key.
+     *
+     * @param array<string,mixed> $scopeContext
+     * @return array<string,mixed>
+     */
+    private function normalizeScopeContext(array $scopeContext): array
+    {
+        foreach (['timezones', 'baseCurrencies'] as $listKey) {
+            if (isset($scopeContext[$listKey]) && \is_array($scopeContext[$listKey])) {
+                $scopeContext[$listKey] = $this->sortedList($scopeContext[$listKey]);
+            }
+        }
+
+        return $scopeContext;
     }
 
     /**

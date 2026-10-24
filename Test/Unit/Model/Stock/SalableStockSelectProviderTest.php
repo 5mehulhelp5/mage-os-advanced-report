@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\Stock;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Stock\SalableStockSelectProvider;
 use MageOS\AdvancedReport\Test\Unit\Helper\SelectTestTrait;
@@ -97,6 +98,36 @@ final class SalableStockSelectProviderTest extends TestCase
         $this->assertStringNotContainsString('UNION', $sql);
     }
 
+    public function testItAppliesTheExecutionTimeHintToTheStockIdLookup(): void
+    {
+        $adapter = $this->createSqlAdapter();
+        $lookups = [];
+        $adapter->method('fetchCol')->willReturnCallback(
+            static function (mixed $sql) use (&$lookups): array {
+                $lookups[] = $sql;
+
+                return [];
+            }
+        );
+        $provider = new SalableStockSelectProvider(
+            $this->createStub(ScopeConfigInterface::class),
+            $this->hintingGuardrails(),
+        );
+
+        $provider->getSelect($adapter, $this->dataset());
+
+        $this->assertCount(1, $lookups);
+        $this->assertStringStartsWith('HINTED ', $lookups[0]);
+    }
+
+    private function hintingGuardrails(): Guardrails
+    {
+        $guardrails = $this->createStub(Guardrails::class);
+        $guardrails->method('applyTimeout')->willReturnCallback(static fn (string $sql): string => 'HINTED ' . $sql);
+
+        return $guardrails;
+    }
+
     /**
      * @param int[] $stockIds
      * @param string[] $existingTables
@@ -110,7 +141,7 @@ final class SalableStockSelectProviderTest extends TestCase
         );
         $config = $this->createStub(ScopeConfigInterface::class);
         $config->method('getValue')->willReturn($minQty);
-        $provider = new SalableStockSelectProvider($config, ['configurable', 'bundle', 'grouped']);
+        $provider = new SalableStockSelectProvider($config, $this->hintingGuardrails(), ['configurable', 'bundle', 'grouped']);
 
         return $this->normalizeSql($provider->getSelect($adapter, $this->dataset()));
     }

@@ -105,3 +105,13 @@ messages.
 Roles that only have a module ACL (for example `MageOS_AdvancedReport::sales`) lose the datasets until the matching core
 ACL is granted. After deploying, regenerate `generated/code/MageOS/AdvancedReport` (controller constructors changed):
 `setup:di:compile` in production, or clear `generated/` in developer mode.
+
+## Trusted CLI authorization (benchmark)
+
+Reports need an authorization decision, and a CLI process has no backend session. `Model/Security/TrustedCliAuthorization`
+decorates the core `Magento\Framework\Authorization` and is injected (in `etc/di.xml`) as the `authorization` argument of
+`DatasetAccess`, `AclContext` and `RequestValidator` only; it is not a global preference, so no other consumer is affected.
+It allows every resource only while `Model/Security/TrustedCliContext` is enabled and otherwise delegates unchanged. The
+context is disabled by default and only the benchmark command enables it, after the area code is set. The CLI is trusted
+(shell access is the trust boundary, like `advanced-report:explain` and `advanced-report:inventory`), so benchmark runs skip
+the dataset ACL gates; HTTP entry points never enable the context.

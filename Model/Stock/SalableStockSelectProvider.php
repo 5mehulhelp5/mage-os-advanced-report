@@ -8,6 +8,7 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\BaseSelectProviderInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -27,10 +28,13 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
     private const string XML_PATH_MIN_QTY = 'cataloginventory/item_options/min_qty';
 
     /**
+     * @param ScopeConfigInterface $scopeConfig
+     * @param Guardrails $guardrails
      * @param string[] $excludedProductTypes
      */
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
+        private readonly Guardrails $guardrails,
         private readonly array $excludedProductTypes = []
     ) {
     }
@@ -84,9 +88,8 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
      */
     private function getIndexSelects(AdapterInterface $connection): array
     {
-        $stockIds = $connection->fetchCol(
-            $connection->select()->from($connection->getTableName('inventory_stock'), ['stock_id'])
-        );
+        $stockSelect = $connection->select()->from($connection->getTableName('inventory_stock'), ['stock_id']);
+        $stockIds = $connection->fetchCol($this->guardrails->applyTimeout((string) $stockSelect));
         $selects = [];
         foreach ($stockIds as $stockId) {
             $stockId = (int) $stockId;

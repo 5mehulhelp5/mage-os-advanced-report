@@ -36,5 +36,9 @@
         <index referenceId="SALES_ORDER_ITEM_PRODUCT_ID" indexType="btree">
             <column name="product_id"/>
         </index>
+        <index referenceId="SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID" indexType="btree">
+            <column name="product_id"/>
+            <column name="order_id"/>
+        </index>
     </table>
 </schema>

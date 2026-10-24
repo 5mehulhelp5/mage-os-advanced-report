@@ -57,6 +57,7 @@ class ReportRunner implements ReportRunnerInterface
         private readonly CurrencyProbeInterface $currencyProbe,
         private readonly LocaleResolverInterface $localeResolver,
         private readonly AclContext $aclContext,
+        private readonly ResultCacheLock $resultCacheLock,
     ) {
     }
 
@@ -68,17 +69,24 @@ class ReportRunner implements ReportRunnerInterface
 
         $cacheKey = $this->buildCacheKey($request, $plan, $execution['sourceCode']);
 
-        if (!$request->isBypassCache()) {
-            $cachedPayload = $this->resultCache->load($cacheKey);
-            if ($cachedPayload !== null) {
-                return $this->hydrateFromCache($cachedPayload);
-            }
+        $computeAndSave = function () use ($request, $dataset, $plan, $execution, $cacheKey): ReportResultInterface {
+            $result = $this->execute($request, $dataset, $plan, $execution);
+            $this->resultCache->save($cacheKey, $this->toCachePayload($result), $this->isOpenPeriod($plan));
+
+            return $result;
+        };
+
+        if ($request->isBypassCache()) {
+            return $computeAndSave();
         }
 
-        $result = $this->execute($request, $dataset, $plan, $execution);
-        $this->resultCache->save($cacheKey, $this->toCachePayload($result), $this->isOpenPeriod($plan));
+        $loadCached = function () use ($cacheKey): ?ReportResultInterface {
+            $cachedPayload = $this->resultCache->load($cacheKey);
 
-        return $result;
+            return $cachedPayload === null ? null : $this->hydrateFromCache($cachedPayload);
+        };
+
+        return $loadCached() ?? $this->resultCacheLock->run($cacheKey, $loadCached, $computeAndSave);
     }
 
     /**
@@ -109,7 +117,10 @@ class ReportRunner implements ReportRunnerInterface
         $isBucketRequest = $this->dateBucketPostProcessor->supports($request);
         $mainExecutionQuery = $isBucketRequest ? $this->withPaging($mainQuery, null, 0) : $mainQuery;
 
-        $probedCurrencies = $execution['isPreset'] ? [] : $this->probeBaseCurrencies($request, $dataset, $plan);
+        $probeStatements = 0;
+        $probedCurrencies = $execution['isPreset']
+            ? []
+            : $this->probeBaseCurrencies($request, $dataset, $plan, $probeStatements);
 
         $mainRaw = ($execution['execute'])($mainExecutionQuery);
 
@@ -145,9 +156,12 @@ class ReportRunner implements ReportRunnerInterface
         $rows = $computed['rows'];
         $totalsWithMetrics = ['metrics' => $computed['totals']];
         $comparisonRange = null;
+        $meta = $mainRaw->meta;
+        $meta['sql_query_count'] = $this->metaInt($mainRaw, 'sql_query_count') + $probeStatements;
+        $meta['sql_time_ms'] = $this->metaFloat($mainRaw, 'sql_time_ms');
 
         if ($comparisonQuery !== null) {
-            $comparisonExecutionQuery = $this->withPaging($comparisonQuery, $this->config->getMaxRows(), 0);
+            $comparisonExecutionQuery = $this->withPaging($comparisonQuery, $this->config->getMaxRows(), 0, false);
             $comparisonRaw = ($execution['execute'])($comparisonExecutionQuery);
             $comparisonComputed = $this->derivedMetricCalculator->apply(
                 $dataset,
@@ -164,6 +178,8 @@ class ReportRunner implements ReportRunnerInterface
                 $requestedMetrics,
             );
             $comparisonRange = $comparisonQuery->dateRange;
+            $meta['sql_query_count'] += $this->metaInt($comparisonRaw, 'sql_query_count');
+            $meta['sql_time_ms'] += $this->metaFloat($comparisonRaw, 'sql_time_ms');
         }
 
         return new ReportResult(
@@ -180,8 +196,18 @@ class ReportRunner implements ReportRunnerInterface
             source: $execution['sourceCode'],
             generatedAt: new DateTimeImmutable(),
             cached: false,
-            meta: $mainRaw->meta,
+            meta: $meta,
         );
+    }
+
+    private function metaInt(RawResult $raw, string $key): int
+    {
+        return (int) ($raw->meta[$key] ?? 0);
+    }
+
+    private function metaFloat(RawResult $raw, string $key): float
+    {
+        return (float) ($raw->meta[$key] ?? 0.0);
     }
 
     /**
@@ -189,18 +215,26 @@ class ReportRunner implements ReportRunnerInterface
      * request; empty when the probe does not apply.
      *
      * @param array{main: ResolvedQuery, comparison: ?ResolvedQuery} $plan
+     * @param int $statements Receives the number of SQL statements run by the probe
      * @throws InvalidRequestException When the periods mix base currencies
      * @return string[]
      */
-    private function probeBaseCurrencies(ReportRequestInterface $request, Dataset $dataset, array $plan): array
-    {
+    private function probeBaseCurrencies(
+        ReportRequestInterface $request,
+        Dataset $dataset,
+        array $plan,
+        int &$statements,
+    ): array {
         if (!$dataset->hasField(Dataset::FIELD_BASE_CURRENCY) || !$this->monetaryRequestDetector->isMonetary($dataset, $request)) {
             return [];
         }
 
+        $statementsPerProbe = $dataset->hasField(Dataset::FIELD_CREATED_AT) ? 1 : 0;
         $currencies = $this->currencyProbe->getBaseCurrencies($plan['main']);
+        $statements += $statementsPerProbe;
         if ($plan['comparison'] !== null) {
             $currencies = [...$currencies, ...$this->currencyProbe->getBaseCurrencies($plan['comparison'])];
+            $statements += $statementsPerProbe;
         }
         $currencies = array_values(array_unique($currencies));
         sort($currencies);
@@ -259,7 +293,21 @@ class ReportRunner implements ReportRunnerInterface
             ],
             $this->localeResolver->getLocale(),
             $this->aclContext->getFingerprint(),
+            $this->buildScopeContext($request, $plan['main']->scope),
         );
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function buildScopeContext(ReportRequestInterface $request, ReportScope $scope): array
+    {
+        return [
+            'timezone' => $scope->timezone,
+            'timezones' => $scope->timezones,
+            'firstDayOfWeek' => $scope->firstDayOfWeek,
+            'baseCurrencies' => $this->baseCurrencyChecker->getCurrencyCodes($request->getStoreIds()),
+        ];
     }
 
     /**
@@ -335,10 +383,11 @@ class ReportRunner implements ReportRunnerInterface
             limit: $query->limit,
             offset: $query->offset,
             scope: $query->scope,
+            countRows: $query->countRows,
         );
     }
 
-    private function withPaging(ResolvedQuery $query, ?int $limit, int $offset): ResolvedQuery
+    private function withPaging(ResolvedQuery $query, ?int $limit, int $offset, ?bool $countRows = null): ResolvedQuery
     {
         return new ResolvedQuery(
             dataset: $query->dataset,
@@ -351,6 +400,7 @@ class ReportRunner implements ReportRunnerInterface
             limit: $limit,
             offset: $offset,
             scope: $query->scope,
+            countRows: $countRows ?? $query->countRows,
         );
     }
 
@@ -522,8 +572,24 @@ class ReportRunner implements ReportRunnerInterface
             source: $payload['source'],
             generatedAt: new DateTimeImmutable($payload['generatedAt']),
             cached: true,
-            meta: $payload['meta'],
+            meta: $this->zeroSqlMeta($payload['meta']),
         );
+    }
+
+    /**
+     * A cache hit runs no SQL: the cold numbers move to the `cached_` keys.
+     *
+     * @param array<string,mixed> $meta
+     * @return array<string,mixed>
+     */
+    private function zeroSqlMeta(array $meta): array
+    {
+        $meta['cached_sql_query_count'] = (int) ($meta['sql_query_count'] ?? 0);
+        $meta['cached_sql_time_ms'] = (float) ($meta['sql_time_ms'] ?? 0.0);
+        $meta['sql_query_count'] = 0;
+        $meta['sql_time_ms'] = 0.0;
+
+        return $meta;
     }
 
     /**

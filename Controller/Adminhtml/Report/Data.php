@@ -14,6 +14,7 @@ use Magento\Framework\Exception\NotFoundException;
 use Magento\Framework\Serialize\Serializer\Json;
 use MageOS\AdvancedReport\Api\ReportRunnerInterface;
 use MageOS\AdvancedReport\Model\DataSource\QueryTimeoutException;
+use MageOS\AdvancedReport\Model\DataSource\ReportConnectionUnavailableException;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\ModuleGuard;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
@@ -81,6 +82,10 @@ class Data extends Action implements HttpPostActionInterface
             return $this->error($result, 403, $e->getMessage());
         } catch (QueryTimeoutException $e) {
             return $this->error($result, 504, $e->getMessage());
+        } catch (ReportConnectionUnavailableException $e) {
+            $this->errorLogger->log($e, 'advanced_report_data');
+
+            return $this->error($result, 503, $e->getMessage());
         } catch (\Throwable $e) {
             $this->errorLogger->log($e, 'advanced_report_data');
 

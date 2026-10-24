@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\ResourceModel;
 
 use Magento\Framework\App\ResourceConnection;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 
 class OrderStatusLabels
 {
     public function __construct(
-        private readonly ResourceConnection $resourceConnection
+        private readonly ResourceConnection $resourceConnection,
+        private readonly ReportConnection $reportConnection,
+        private readonly Guardrails $guardrails,
     ) {
     }
 
@@ -20,7 +24,7 @@ class OrderStatusLabels
      */
     public function getLabels(?int $storeId): array
     {
-        $connection = $this->resourceConnection->getConnection();
+        $connection = $this->reportConnection->get();
         $select = $connection->select()->from(['s' => $this->resourceConnection->getTableName('sales_order_status')], []);
 
         $labelExpression = 's.label';
@@ -34,6 +38,6 @@ class OrderStatusLabels
         }
         $select->columns(['s.status', $labelExpression]);
 
-        return array_map(strval(...), $connection->fetchPairs($select));
+        return array_map(strval(...), $connection->fetchPairs($this->guardrails->applyTimeout((string) $select), $select->getBind()));
     }
 }

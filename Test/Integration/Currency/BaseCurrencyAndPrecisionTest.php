@@ -11,7 +11,9 @@ use Magento\Checkout\Test\Fixture\SetDeliveryMethod;
 use Magento\Checkout\Test\Fixture\SetGuestEmail;
 use Magento\Checkout\Test\Fixture\SetPaymentMethod;
 use Magento\Checkout\Test\Fixture\SetShippingAddress;
+use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\Filesystem;
 use Magento\Quote\Test\Fixture\AddProductToCart;
 use Magento\Quote\Test\Fixture\GuestCart;
 use Magento\TestFramework\Fixture\AppArea;
@@ -208,7 +210,11 @@ final class BaseCurrencyAndPrecisionTest extends TestCase
             'dateRange' => ['type' => 'custom', 'from' => '2026-06-01', 'to' => '2026-06-30'],
             'storeIds' => self::STORE_IDS,
         ]);
-        $csv = Bootstrap::getObjectManager()->get(CsvExporter::class)->export($request, true);
+        $objectManager = Bootstrap::getObjectManager();
+        $path = $objectManager->get(CsvExporter::class)->exportToFile($request, true);
+        $varDirectory = $objectManager->get(Filesystem::class)->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $csv = $varDirectory->readFile($path);
+        $varDirectory->delete($path);
 
         $lines = array_values(array_filter(explode("\n", $csv), static fn (string $line): bool => $line !== ''));
         // last line is the totals row; the two metric cells are its last two columns

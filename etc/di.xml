@@ -199,6 +199,7 @@
     <type name="Magento\Framework\Console\CommandListInterface">
         <arguments>
             <argument name="commands" xsi:type="array">
+                <item name="mageos_advancedreport_benchmark" xsi:type="object">MageOS\AdvancedReport\Console\Command\BenchmarkCommand</item>
                 <item name="mageos_advancedreport_explain" xsi:type="object">MageOS\AdvancedReport\Console\Command\ExplainCommand</item>
                 <item name="mageos_advancedreport_inventory" xsi:type="object">MageOS\AdvancedReport\Console\Command\InventoryCommand</item>
             </argument>
@@ -209,10 +210,21 @@
             <argument name="definitionRegistry" xsi:type="object">MageOS\AdvancedReport\Model\Definition\DefinitionRegistry\Proxy</argument>
             <argument name="queryPlanner" xsi:type="object">MageOS\AdvancedReport\Model\Query\QueryPlanner\Proxy</argument>
             <argument name="selectBuilder" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder\Proxy</argument>
-            <argument name="resourceConnection" xsi:type="object">Magento\Framework\App\ResourceConnection\Proxy</argument>
+            <argument name="reportConnection" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection\Proxy</argument>
             <argument name="presetRequestBuilder" xsi:type="object">MageOS\AdvancedReport\Model\Query\PresetRequestBuilder\Proxy</argument>
             <argument name="presetQueryPool" xsi:type="object">MageOS\AdvancedReport\Model\Preset\PresetQueryPool\Proxy</argument>
-            <argument name="config" xsi:type="object">MageOS\AdvancedReport\Model\Config\Proxy</argument>
+            <argument name="timezoneStrategy" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\TimezoneStrategy\Proxy</argument>
+            <argument name="monetaryRequestDetector" xsi:type="object">MageOS\AdvancedReport\Model\Query\MonetaryRequestDetector\Proxy</argument>
+            <argument name="flavourDetector" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavourDetector\Proxy</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Console\Command\BenchmarkCommand">
+        <arguments>
+            <argument name="scenarioProvider" xsi:type="object">MageOS\AdvancedReport\Model\Benchmark\ScenarioProvider\Proxy</argument>
+            <argument name="benchmarkRunner" xsi:type="object">MageOS\AdvancedReport\Model\Benchmark\BenchmarkRunner\Proxy</argument>
+            <argument name="reportConnection" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection\Proxy</argument>
+            <argument name="guardrails" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails\Proxy</argument>
+            <argument name="concurrentRunner" xsi:type="object">MageOS\AdvancedReport\Model\Benchmark\ConcurrentRunner\Proxy</argument>
         </arguments>
     </type>
     <type name="MageOS\AdvancedReport\Console\Command\InventoryCommand">
@@ -221,8 +233,70 @@
             <argument name="definitionRegistry" xsi:type="object">MageOS\AdvancedReport\Model\Definition\DefinitionRegistry\Proxy</argument>
         </arguments>
     </type>
+    <type name="MageOS\AdvancedReport\Model\Security\AclContext">
+        <arguments>
+            <argument name="authorization" xsi:type="object">MageOS\AdvancedReport\Model\Security\TrustedCliAuthorization</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Query\RequestValidator">
+        <arguments>
+            <argument name="authorization" xsi:type="object">MageOS\AdvancedReport\Model\Security\TrustedCliAuthorization</argument>
+        </arguments>
+    </type>
+    <type name="MageOS\AdvancedReport\Model\Benchmark\ScenarioProvider">
+        <arguments>
+            <argument name="presets" xsi:type="array">
+                <item name="sales_overview" xsi:type="string">sales_overview</item>
+                <item name="new_vs_returning" xsi:type="string">new_vs_returning</item>
+                <item name="product_performance" xsi:type="string">product_performance</item>
+                <item name="customer_value" xsi:type="string">customer_value</item>
+            </argument>
+            <argument name="datelessPresets" xsi:type="array">
+                <item name="stock_value" xsi:type="string">stock_value</item>
+                <item name="low_stock_coverage" xsi:type="string">low_stock_coverage</item>
+                <item name="dead_stock" xsi:type="string">dead_stock</item>
+            </argument>
+            <argument name="dateRanges" xsi:type="array">
+                <item name="last_30_days" xsi:type="string">last_30_days</item>
+                <item name="last_12_months" xsi:type="string">last_12_months</item>
+            </argument>
+            <argument name="expensiveScenarios" xsi:type="array">
+                <item name="three_dimensions_12m" xsi:type="array">
+                    <item name="request" xsi:type="array">
+                        <item name="dataset" xsi:type="string">sales_orders</item>
+                        <item name="metrics" xsi:type="array">
+                            <item name="0" xsi:type="string">orders</item>
+                            <item name="1" xsi:type="string">net_sales</item>
+                        </item>
+                        <item name="dimensions" xsi:type="array">
+                            <item name="0" xsi:type="array">
+                                <item name="code" xsi:type="string">order_date</item>
+                                <item name="granularity" xsi:type="string">month</item>
+                            </item>
+                            <item name="1" xsi:type="array">
+                                <item name="code" xsi:type="string">payment_method</item>
+                            </item>
+                            <item name="2" xsi:type="array">
+                                <item name="code" xsi:type="string">shipping_country</item>
+                            </item>
+                        </item>
+                    </item>
+                    <item name="dateRange" xsi:type="string">last_12_months</item>
+                </item>
+                <item name="category_12m" xsi:type="array">
+                    <item name="preset" xsi:type="string">sales_by_category</item>
+                    <item name="dateRange" xsi:type="string">last_12_months</item>
+                </item>
+                <item name="new_vs_returning_12m" xsi:type="array">
+                    <item name="preset" xsi:type="string">new_vs_returning</item>
+                    <item name="dateRange" xsi:type="string">last_12_months</item>
+                </item>
+            </argument>
+        </arguments>
+    </type>
     <type name="MageOS\AdvancedReport\Model\Security\DatasetAccess">
         <arguments>
+            <argument name="authorization" xsi:type="object">MageOS\AdvancedReport\Model\Security\TrustedCliAuthorization</argument>
             <argument name="coreResources" xsi:type="array">
                 <item name="sales_orders" xsi:type="string">Magento_Sales::sales_order</item>
                 <item name="customer_orders" xsi:type="string">Magento_Sales::sales_order</item>

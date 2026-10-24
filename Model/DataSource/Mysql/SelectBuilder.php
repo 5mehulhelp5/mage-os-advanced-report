@@ -9,7 +9,6 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use Magento\Framework\DB\Sql\Expression;
-use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
@@ -32,7 +31,7 @@ class SelectBuilder
      */
     public function __construct(
         private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config,
+        private readonly ReportConnection $reportConnection,
         private readonly JoinRegistry $joinRegistry,
         private readonly FieldExpressionResolver $fieldExpressionResolver,
         private readonly AggregateExpressionBuilder $aggregateExpressionBuilder,
@@ -197,7 +196,8 @@ class SelectBuilder
             [],
             null,
             0,
-            $query->scope
+            $query->scope,
+            $query->countRows
         ));
     }
 
@@ -217,7 +217,7 @@ class SelectBuilder
 
     private function getConnection(): AdapterInterface
     {
-        return $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        return $this->reportConnection->get();
     }
 
     private function baseAlias(Dataset $dataset): string

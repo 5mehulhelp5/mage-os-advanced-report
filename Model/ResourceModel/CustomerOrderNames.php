@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\ResourceModel;
 
 use Magento\Framework\App\ResourceConnection;
-use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 
 class CustomerOrderNames
 {
@@ -13,7 +14,8 @@ class CustomerOrderNames
 
     public function __construct(
         private readonly ResourceConnection $resourceConnection,
-        private readonly Config $config
+        private readonly ReportConnection $reportConnection,
+        private readonly Guardrails $guardrails,
     ) {
     }
 
@@ -26,7 +28,7 @@ class CustomerOrderNames
      */
     public function getNames(array $emails): array
     {
-        $connection = $this->resourceConnection->getConnectionByName($this->config->getConnectionName());
+        $connection = $this->reportConnection->get();
         $names = [];
         foreach (array_chunk(array_values($emails), self::CHUNK_SIZE) as $chunk) {
             $select = $connection->select()
@@ -42,7 +44,7 @@ class CustomerOrderNames
                 ->where('o.customer_email IN (?)', $chunk)
                 ->order(['o.created_at DESC', 'o.entity_id DESC']);
 
-            foreach ($connection->fetchAll($select) as $row) {
+            foreach ($connection->fetchAll($this->guardrails->applyTimeout((string) $select), $select->getBind()) as $row) {
                 $email = strtolower(trim((string)$row['customer_email']));
                 $names[$email] ??= $this->fullName($row);
             }

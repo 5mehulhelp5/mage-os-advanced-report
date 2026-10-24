@@ -1,7 +1,7 @@
 # Time and currency
 
 Semantics of dates, timezones and currencies in the reports. Every rule links to the integration test that proves it
-(paths relative to `Test/Integration/`, run with `make integration`). Risks are tracked in the
+(paths relative to `Test/Integration/`, run with the Magento integration framework (`cd dev/tests/integration && ../../../vendor/bin/phpunit -c phpunit.xml ../../../app/code/MageOS/AdvancedReport/Test/Integration`)). Risks are tracked in the
 [risk register](risk-register.md) (R13, R17, R34 to R37); metric semantics are in the
 [metric definitions](metric-definitions.md).
 

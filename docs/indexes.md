@@ -88,6 +88,13 @@ Guidance for large shops:
 - If the engine cannot do the change online, the statement fails or waits for metadata locks; do not run it while long
   transactions hold the order tables.
 
-Results of `index-timing.sql` on the medium and large profiles: `to be filled by the maintainer`.
+Results of `index-timing.sql` on the medium and large profiles (seconds per index, MySQL 8.4.4 in Docker, one machine, no concurrent writes):
+
+| Index | Medium (50 000 orders) | Large (500 000 orders) |
+| --- | --- | --- |
+| `SALES_ORDER_CUSTOMER_ID_CREATED_AT` | 0.1296 | 1.4773 |
+| `SALES_ORDER_CUSTOMER_EMAIL_CREATED_AT` | 0.2074 | 1.3776 |
+| `SALES_ORDER_ITEM_PRODUCT_ID` | 0.1693 | 1.6457 |
+| `SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID` | 0.1972 | 1.1390 |
 
 An integration test (`Test/Integration/Schema/InstallationTest.php`) asserts the installed index definitions (columns, order, non-unique) and that the declarative schema is up to date after install; a unit test requires a `### <referenceId>` section above for every declared index.

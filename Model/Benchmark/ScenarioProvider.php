@@ -60,6 +60,7 @@ class ScenarioProvider
                             $this->dateRange($rangeCode),
                             $storeIds,
                             $compareTo,
+                            $rangeCode,
                         );
                     }
                 }
@@ -74,6 +75,7 @@ class ScenarioProvider
                     new DateRange(DateRangeType::LAST_30_DAYS),
                     $storeIds,
                     CompareMode::NONE,
+                    dateless: true,
                 );
             }
         }
@@ -96,11 +98,12 @@ class ScenarioProvider
      */
     private function storeOptions(): array
     {
-        $options = ['all_stores' => []];
+        $options = [ScenarioCode::storeSegment([]) => []];
         $stores = $this->storeManager->getStores();
         $first = reset($stores);
         if ($first !== false) {
-            $options['store_' . (int) $first->getId()] = [(int) $first->getId()];
+            $ids = [(int) $first->getId()];
+            $options[ScenarioCode::storeSegment($ids)] = $ids;
         }
 
         return $options;

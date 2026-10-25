@@ -16,6 +16,7 @@ use MageOS\AdvancedReport\Model\Benchmark\ConcurrencySummary;
 use MageOS\AdvancedReport\Model\Benchmark\ConcurrentRunner;
 use MageOS\AdvancedReport\Model\Benchmark\Measurement;
 use MageOS\AdvancedReport\Model\Benchmark\Scenario;
+use MageOS\AdvancedReport\Model\Benchmark\ScenarioCode;
 use MageOS\AdvancedReport\Model\Benchmark\ScenarioProvider;
 use MageOS\AdvancedReport\Model\Benchmark\ScenarioResult;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
@@ -53,6 +54,7 @@ class BenchmarkCommand extends Command
     private const string OPTION_BUDGET = 'budget-ms';
     private const string OPTION_LABEL = 'profile-label';
     private const string OPTION_CONCURRENCY = 'concurrency';
+    private const int MAX_LISTED_MATCHES = 10;
     private const string OPTION_WORKER = 'worker';
     private const string OPTION_START_AT = 'start-at';
     private const string RANGE_LAST_30_DAYS = 'last_30_days';
@@ -111,7 +113,7 @@ class BenchmarkCommand extends Command
                 self::OPTION_STORE,
                 null,
                 InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
-                'Store id, repeatable (default: the matrix stores)'
+                'Store id, repeatable; 0 = all stores (default: the matrix stores)'
             )
             ->addOption(
                 self::OPTION_COMPARE,
@@ -210,7 +212,10 @@ class BenchmarkCommand extends Command
     private function runWorker(array $scenarios, InputInterface $input, OutputInterface $output): int
     {
         if (\count($scenarios) !== 1) {
-            $output->writeln('<error>A worker needs options selecting exactly one scenario.</error>');
+            $output->writeln(
+                '<error>A worker needs options selecting exactly one scenario; '
+                . $this->describeMatches($scenarios) . '</error>'
+            );
 
             return Command::FAILURE;
         }
@@ -233,11 +238,25 @@ class BenchmarkCommand extends Command
     /**
      * @param Scenario[] $scenarios
      */
+    private function describeMatches(array $scenarios): string
+    {
+        $codes = array_map(static fn (Scenario $scenario): string => $scenario->code, $scenarios);
+        $list = implode(', ', \array_slice($codes, 0, self::MAX_LISTED_MATCHES));
+        $rest = \count($codes) - self::MAX_LISTED_MATCHES;
+
+        return \count($codes) . ' match: ' . $list . ($rest > 0 ? ', ... and ' . $rest . ' more' : '') . '.';
+    }
+
+    /**
+     * @param Scenario[] $scenarios
+     */
     private function runConcurrent(array $scenarios, InputInterface $input, OutputInterface $output): int
     {
         if (\count($scenarios) !== 1) {
             $output->writeln(
-                '<error>--concurrency needs options selecting exactly one scenario (e.g. --preset, --range, --store, --compare).</error>'
+                '<error>--concurrency needs options selecting exactly one scenario; '
+                . $this->describeMatches($scenarios)
+                . ' Narrow with --preset, --range, --store (0 = all stores) and --compare.</error>'
             );
 
             return Command::FAILURE;
@@ -371,6 +390,8 @@ class BenchmarkCommand extends Command
             $budget !== null && !is_numeric($budget) => 'Invalid --budget-ms: use a number.',
             array_filter($input->getOption(self::OPTION_STORE), static fn (string $id): bool => !ctype_digit($id)) !== []
                 => 'Invalid --store: use numeric store ids.',
+            $this->isAllStoresMixedWithOthers($input->getOption(self::OPTION_STORE))
+                => 'Invalid --store: 0 (all stores) cannot be combined with other store ids.',
             $input->getOption(self::OPTION_CONCURRENCY) !== null && !$this->isValidConcurrency($input)
                 => 'Invalid --concurrency: use an integer between 1 and 32.',
             $input->getOption(self::OPTION_START_AT) !== null && !ctype_digit((string) $input->getOption(self::OPTION_START_AT))
@@ -389,8 +410,10 @@ class BenchmarkCommand extends Command
     {
         $presets = $input->getOption(self::OPTION_PRESET);
         $range = $input->getOption(self::OPTION_RANGE);
-        $stores = array_map(intval(...), $input->getOption(self::OPTION_STORE));
+        $stores = $this->storeOverride($input);
         $compare = $input->getOption(self::OPTION_COMPARE);
+
+        $overridden = $stores !== null || $compare !== null || $range === self::RANGE_CUSTOM;
 
         $scenarios = [];
         foreach ($this->scenarioProvider->getScenarios() as $scenario) {
@@ -398,10 +421,48 @@ class BenchmarkCommand extends Command
                 continue;
             }
             $scenario = $this->override($scenario, $input, $stores, $compare);
-            $scenarios[$scenario->code] = $scenario;
+            $key = $overridden ? $this->identity($scenario) : $scenario->code;
+            $scenarios[$key] ??= $scenario;
         }
 
         return array_values($scenarios);
+    }
+
+    /**
+     * @param InputInterface $input
+     * @return int[]|null Null when no --store is given, [] for --store=0 (all stores).
+     */
+    private function storeOverride(InputInterface $input): ?array
+    {
+        $stores = array_map(intval(...), $input->getOption(self::OPTION_STORE));
+
+        return $stores === [] ? null : array_values(array_filter($stores));
+    }
+
+    /**
+     * @param string[] $stores
+     */
+    private function isAllStoresMixedWithOthers(array $stores): bool
+    {
+        $ids = array_unique(array_map(intval(...), array_filter($stores, ctype_digit(...))));
+
+        return \in_array(0, $ids, true) && \count($ids) > 1;
+    }
+
+    private function identity(Scenario $scenario): string
+    {
+        $storeIds = $scenario->storeIds;
+        sort($storeIds);
+
+        return json_encode([
+            $scenario->preset,
+            $scenario->request,
+            $scenario->dateRange->type->value,
+            $scenario->dateRange->from,
+            $scenario->dateRange->to,
+            $storeIds,
+            $scenario->compareTo->value,
+        ], JSON_THROW_ON_ERROR);
     }
 
     private function matchesRange(Scenario $scenario, ?string $range): bool
@@ -414,45 +475,54 @@ class BenchmarkCommand extends Command
     }
 
     /**
-     * Applies the stores, comparison and custom range options; the code gets a suffix so overridden
-     * scenarios that collapse into the same case are run once.
+     * Applies the stores, comparison and custom range options and rebuilds the code from the effective
+     * values, so overridden scenarios that collapse into the same case share one identity.
      *
      * @param Scenario $scenario
      * @param InputInterface $input
-     * @param int[] $stores
+     * @param int[]|null $stores
      * @param string|null $compare
      */
-    private function override(Scenario $scenario, InputInterface $input, array $stores, ?string $compare): Scenario
+    private function override(Scenario $scenario, InputInterface $input, ?array $stores, ?string $compare): Scenario
     {
-        $code = $scenario->code;
         $dateRange = $scenario->dateRange;
-        $storeIds = $scenario->storeIds;
-        $compareTo = $scenario->compareTo;
-        if ($input->getOption(self::OPTION_RANGE) === self::RANGE_CUSTOM) {
+        $storeIds = $stores === null ? $scenario->storeIds : array_values(array_unique($stores));
+        $compareTo = $compare !== null ? CompareMode::from($compare) : $scenario->compareTo;
+        $rangeCode = $scenario->rangeCode;
+        $suffix = '';
+        $custom = $input->getOption(self::OPTION_RANGE) === self::RANGE_CUSTOM;
+        if ($custom) {
             $dateRange = new DateRange(
                 DateRangeType::CUSTOM,
                 $input->getOption(self::OPTION_FROM),
                 $input->getOption(self::OPTION_TO),
             );
-            $code .= '@' . $dateRange->from . '..' . $dateRange->to;
+            $rangeCode = $rangeCode === null ? null : self::RANGE_CUSTOM;
+            $suffix = '@' . $dateRange->from . '..' . $dateRange->to;
         }
-        if ($stores !== []) {
-            $storeIds = $stores;
-            $code = $this->stripSegment($code) . '@stores=' . implode(',', $stores);
-        }
-        if ($compare !== null) {
-            $compareTo = CompareMode::from($compare);
-            $code = $this->stripSegment($code, '@compare=') . '@compare=' . $compare;
+        $storeSegment = ScenarioCode::storeSegment($storeIds);
+
+        if ($scenario->rangeCode !== null) {
+            $code = \sprintf('%s:%s:%s:%s', $scenario->preset, $rangeCode, $storeSegment, $compareTo->value) . $suffix;
+        } elseif ($scenario->dateless) {
+            $code = $scenario->preset . ':' . $storeSegment . $suffix
+                . ($compare !== null ? '@compare=' . $compare : '');
+        } else {
+            $code = $scenario->code . $suffix
+                . ($stores !== null ? '@stores=' . ($storeIds === [] ? 'all' : implode(',', $storeIds)) : '')
+                . ($compare !== null ? '@compare=' . $compare : '');
         }
 
-        return new Scenario($code, $scenario->preset, $scenario->request, $dateRange, $storeIds, $compareTo);
-    }
-
-    private function stripSegment(string $code, string $marker = '@stores='): string
-    {
-        $position = strpos($code, $marker);
-
-        return $position === false ? $code : substr($code, 0, $position);
+        return new Scenario(
+            $code,
+            $scenario->preset,
+            $scenario->request,
+            $dateRange,
+            $storeIds,
+            $compareTo,
+            $rangeCode,
+            $scenario->dateless,
+        );
     }
 
     /**

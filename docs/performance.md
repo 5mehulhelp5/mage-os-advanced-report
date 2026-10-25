@@ -94,13 +94,13 @@ in `app/etc/env.php`). The seed modifies the **main** database: use a developmen
    ```bash
    bin/magento advanced-report:benchmark --profile-label=medium --repeat=3 --format=markdown
    bin/magento advanced-report:benchmark --profile-label=medium --repeat=3 --range=last_30_days --budget-ms=3000
-   bin/magento advanced-report:benchmark --concurrency=8 --preset=sales_by_category
+   bin/magento advanced-report:benchmark --concurrency=8 --preset=sales_overview --range=last_30_days --store=0 --compare=none
    ```
 
    The concurrency mode **cleans the whole `advanced_report` cache type** (no confirmation) and needs filters that select
-   exactly one scenario. Only `sales_by_category` (the `category_12m` scenario) is a single scenario today: the dated matrix
-   presets (for example `sales_overview`) build 2 store options x 2 compare modes and cannot currently be isolated for the
-   concurrency mode with `--store` / `--compare` (see [R43](risk-register.md)). See [`advanced-report:benchmark`](../README.md#advanced-reportbenchmark) for the options.
+   exactly one scenario: `--store=0` selects all stores and `--compare=none` removes the comparison variants, so the example
+   above runs `sales_overview:last_30_days:all_stores:none`. The recorded concurrency results used `--preset=sales_by_category`
+   (the `category_12m` scenario). See [`advanced-report:benchmark`](../README.md#advanced-reportbenchmark) for the options.
 
 4. Inspect the plans of the same presets:
 
@@ -330,8 +330,3 @@ that pre-warms the cache of the common presets. Both add moving parts (consumer 
 snapshot of the requesting user, stale pre-warmed data) and live queries with a 30 s timeout, the cache and the lock are enough
 while reports stay within the interactive budget. Trigger to revisit: reports that regularly exceed the budget on production
 data, as shown by the benchmark.
-
-## After upgrading
-
-Constructors of controllers and services changed. Regenerate the generated code (`setup:di:compile` in production, clear
-`generated/` in developer mode) and run `setup:upgrade` for the new indexes (R33).

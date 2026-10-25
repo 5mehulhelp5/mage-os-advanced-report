@@ -20,6 +20,8 @@ final readonly class Scenario
      * @param DateRange $dateRange
      * @param int[] $storeIds Empty means all stores.
      * @param CompareMode $compareTo
+     * @param string|null $rangeCode Range segment of a dated matrix scenario code; null otherwise.
+     * @param bool $dateless Whether this is a dateless matrix scenario (`preset:store` code).
      */
     public function __construct(
         public string $code,
@@ -28,6 +30,8 @@ final readonly class Scenario
         public DateRange $dateRange,
         public array $storeIds,
         public CompareMode $compareTo,
+        public ?string $rangeCode = null,
+        public bool $dateless = false,
     ) {
     }
 }

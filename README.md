@@ -439,14 +439,14 @@ expensive scenarios.
 ```bash
 bin/magento advanced-report:benchmark --profile-label=medium --repeat=3 --format=markdown
 bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_days --budget-ms=3000
-bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_days --concurrency=8
+bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_days --store=0 --compare=none --concurrency=8
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `--preset=CODE` | Preset, repeatable (default: the full matrix) |
 | `--range=last_30_days\|last_12_months\|custom` | Date range; `custom` needs `--from` and `--to` (Y-m-d) |
-| `--store=ID` | Store id, repeatable (default: the matrix stores) |
+| `--store=ID` | Store id, repeatable; `0` = all stores (cannot be combined with other ids). Default: the matrix stores |
 | `--compare=none\|previous_period\|previous_year` | Comparison override |
 | `--repeat=N` | Cold and warm runs per scenario (default 3) |
 | `--format=table\|json\|markdown` | Output format (default `table`) |
@@ -454,6 +454,11 @@ bin/magento advanced-report:benchmark --preset=sales_overview --range=last_30_da
 | `--budget-ms=N` | Scenarios whose cold median exceeds N ms are listed and the exit code is 1 |
 | `--profile-label=NAME` | Label of the data profile (small, medium, large) shown in the header |
 | `--concurrency=N` | Run exactly one scenario in N (1-32) parallel worker processes and report how many executed SQL or were served from cache. **Cleans the whole `advanced_report` cache type.** |
+
+`--store` and `--compare` (and `--range=custom`) override the store, comparison and range part of the scenario code
+(`--range=custom` sets the range part to `custom` plus `@from..to`), and scenarios that become identical run once. Without
+overrides the matrix is unchanged. With overrides, an expensive scenario identical to a matrix scenario (for example
+`new_vs_returning_12m`) is merged into the matrix one (the first one is kept).
 
 `--worker` and `--start-at` are internal options of the concurrency mode. The command runs under a trusted CLI authorization
 (no admin session), see [security](docs/security.md#trusted-cli-authorization-benchmark). The seed, procedure, budgets and the

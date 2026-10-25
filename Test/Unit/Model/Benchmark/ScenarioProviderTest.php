@@ -62,6 +62,20 @@ final class ScenarioProviderTest extends TestCase
         self::assertSame('2026-03-15', $year->to);
     }
 
+    public function testItMarksMatrixScenariosWithTheirSegments(): void
+    {
+        $scenarios = $this->provider()->getScenarios();
+
+        self::assertSame('last_30_days', $scenarios[0]->rangeCode);
+        self::assertFalse($scenarios[0]->dateless);
+        self::assertSame('last_12_months', $scenarios[7]->rangeCode);
+        self::assertNull($scenarios[8]->rangeCode);
+        self::assertTrue($scenarios[8]->dateless);
+        self::assertSame('stock_value:store_3', $scenarios[9]->code);
+        self::assertNull($scenarios[10]->rangeCode);
+        self::assertFalse($scenarios[10]->dateless);
+    }
+
     private function provider(): ScenarioProvider
     {
         $store = $this->createStub(StoreInterface::class);

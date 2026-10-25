@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Console\Command;
 
+use DateTimeImmutable;
 use Magento\Framework\App\State;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Filesystem;
 use Magento\Framework\Filesystem\Directory\WriteInterface;
+use Magento\Store\Api\Data\StoreInterface;
+use Magento\Store\Model\StoreManagerInterface;
 use MageOS\AdvancedReport\Console\Command\BenchmarkCommand;
 use MageOS\AdvancedReport\Model\Benchmark\BarrierClock;
 use MageOS\AdvancedReport\Model\Benchmark\BenchmarkRunner;
@@ -19,9 +22,12 @@ use MageOS\AdvancedReport\Model\Benchmark\ScenarioProvider;
 use MageOS\AdvancedReport\Model\Benchmark\ScenarioResult;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
+use MageOS\AdvancedReport\Model\Query\ClockInterface;
 use MageOS\AdvancedReport\Model\Query\CompareMode;
 use MageOS\AdvancedReport\Model\Query\DateRange;
 use MageOS\AdvancedReport\Model\Query\DateRangeType;
+use MageOS\AdvancedReport\Model\Query\ReportScope;
+use MageOS\AdvancedReport\Model\Query\ReportScopeResolver;
 use MageOS\AdvancedReport\Model\Security\TrustedCliContext;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -48,6 +54,13 @@ final class BenchmarkCommandTest extends TestCase
      */
     private array $ran = [];
 
+    private string $matrixDisplay = '';
+
+    /**
+     * @var array<string,int[]>
+     */
+    private array $ranStoreIds = [];
+
     protected function setUp(): void
     {
         $this->provider = $this->createMock(ScenarioProvider::class);
@@ -60,6 +73,7 @@ final class BenchmarkCommandTest extends TestCase
         $this->runner = $this->createMock(BenchmarkRunner::class);
         $this->runner->method('run')->willReturnCallback(function (Scenario $scenario, int $repeat): ScenarioResult {
             $this->ran[] = $scenario->code;
+            $this->ranStoreIds[$scenario->code] = $scenario->storeIds;
 
             return new ScenarioResult(
                 $scenario,
@@ -254,6 +268,61 @@ final class BenchmarkCommandTest extends TestCase
         self::assertSame(Command::FAILURE, $exit);
     }
 
+    public function testItListsTheMatchedScenarioCodesWhenTheConcurrencyModeMatchesSeveral(): void
+    {
+        $this->concurrentRunner->expects(self::never())->method('run');
+
+        $exit = $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0'], '--concurrency' => '2',
+        ]);
+
+        self::assertSame(Command::FAILURE, $exit);
+        self::assertStringContainsString('2 match: ', $this->matrixDisplay);
+        self::assertStringContainsString(
+            'sales_overview:last_30_days:all_stores:none, sales_overview:last_30_days:all_stores:previous_period',
+            $this->matrixDisplay
+        );
+    }
+
+    public function testItLimitsTheListedScenarioCodesToTenAndCountsTheRest(): void
+    {
+        $this->runMatrix(['--concurrency' => '2']);
+
+        self::assertStringContainsString('12 match: ', $this->matrixDisplay);
+        self::assertStringContainsString('... and 2 more', $this->matrixDisplay);
+    }
+
+    public function testItReportsThatNoScenarioMatchesForTheConcurrencyMode(): void
+    {
+        $this->concurrentRunner->expects(self::never())->method('run');
+
+        $exit = $this->runMatrix(['--preset' => ['unknown'], '--concurrency' => '2']);
+
+        self::assertSame(Command::FAILURE, $exit);
+        self::assertStringContainsString('No benchmark scenario matches the given options.', $this->matrixDisplay);
+    }
+
+    public function testItListsTheMatchedScenarioCodesWhenAWorkerMatchesSeveral(): void
+    {
+        $exit = $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0'], '--worker' => true,
+        ]);
+
+        self::assertSame(Command::FAILURE, $exit);
+        self::assertStringContainsString('A worker needs options selecting exactly one scenario; 2 match: ', $this->matrixDisplay);
+        self::assertStringContainsString('sales_overview:last_30_days:all_stores:none', $this->matrixDisplay);
+    }
+
+    public function testItNamesTheNarrowingOptionsInTheConcurrencyError(): void
+    {
+        $this->runMatrix(['--preset' => ['sales_overview'], '--concurrency' => '2']);
+
+        self::assertStringContainsString(
+            'Narrow with --preset, --range, --store (0 = all stores) and --compare.',
+            $this->matrixDisplay
+        );
+    }
+
     public function testItRejectsAnInvalidConcurrency(): void
     {
         $this->concurrentRunner->expects(self::never())->method('run');
@@ -307,6 +376,243 @@ final class BenchmarkCommandTest extends TestCase
             ['wall_ms' => 55.5, 'cached' => true, 'sql_statements' => 0, 'measured_at_ms' => 1_700_000_005_100],
             json_decode(trim($this->tester->getDisplay()), true, 512, JSON_THROW_ON_ERROR)
         );
+    }
+
+    public function testItSelectsExactlyOneDatedScenarioWithStoreAndCompareOptions(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['1'], '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:last_30_days:store_1:none'], $this->ran);
+    }
+
+    public function testItRewritesTheStoreSegmentOfMatrixCodesInsteadOfAppendingASuffix(): void
+    {
+        $this->runMatrix(['--preset' => ['sales_overview'], '--store' => ['2']]);
+
+        self::assertSame([
+            'sales_overview:last_30_days:store_2:none',
+            'sales_overview:last_30_days:store_2:previous_period',
+            'sales_overview:last_12_months:store_2:none',
+            'sales_overview:last_12_months:store_2:previous_period',
+        ], $this->ran);
+    }
+
+    public function testItRewritesTheCompareSegmentOfMatrixCodes(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--compare' => 'previous_year',
+        ]);
+
+        self::assertSame([
+            'sales_overview:last_30_days:all_stores:previous_year',
+            'sales_overview:last_30_days:store_1:previous_year',
+        ], $this->ran);
+    }
+
+    public function testItRewritesTheStoreSegmentOfDatelessCodes(): void
+    {
+        $this->runMatrix(['--preset' => ['stock_value'], '--store' => ['1']]);
+
+        self::assertSame(['stock_value:store_1'], $this->ran);
+    }
+
+    public function testItKeepsTheSuffixForExpensiveScenarioCodes(): void
+    {
+        $this->runMatrix(['--preset' => ['new_vs_returning'], '--store' => ['1']]);
+
+        self::assertSame(['expensive_report@stores=1'], $this->ran);
+    }
+
+    public function testItKeepsTheDefaultMatrixCodesUnchangedWithoutOverrides(): void
+    {
+        $this->runMatrix([]);
+
+        self::assertSame([
+            'sales_overview:last_30_days:all_stores:none',
+            'sales_overview:last_30_days:all_stores:previous_period',
+            'sales_overview:last_30_days:store_1:none',
+            'sales_overview:last_30_days:store_1:previous_period',
+            'sales_overview:last_12_months:all_stores:none',
+            'sales_overview:last_12_months:all_stores:previous_period',
+            'sales_overview:last_12_months:store_1:none',
+            'sales_overview:last_12_months:store_1:previous_period',
+            'stock_value:all_stores',
+            'stock_value:store_1',
+            'new_vs_returning_12m',
+            'expensive_report',
+        ], $this->ran);
+    }
+
+    public function testItCodesSeveralStoresAsAStoresSegment(): void
+    {
+        $this->runMatrix(['--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['1', '2']]);
+
+        self::assertSame([
+            'sales_overview:last_30_days:stores_1,2:none',
+            'sales_overview:last_30_days:stores_1,2:previous_period',
+        ], $this->ran);
+    }
+
+    public function testItMergesAnExpensiveScenarioIdenticalToAMatrixScenarioWhenOverridden(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_12_months', '--store' => ['1'], '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:last_12_months:store_1:none'], $this->ran);
+    }
+
+    public function testItCollapsesBothRangesIntoOneCustomScenario(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'custom', '--from' => '2026-01-01', '--to' => '2026-01-31',
+            '--store' => ['1'], '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:custom:store_1:none@2026-01-01..2026-01-31'], $this->ran);
+    }
+
+    public function testItAppendsTheCompareSuffixToDatelessCodes(): void
+    {
+        $this->runMatrix(['--preset' => ['stock_value'], '--compare' => 'previous_period']);
+
+        self::assertSame([
+            'stock_value:all_stores@compare=previous_period',
+            'stock_value:store_1@compare=previous_period',
+        ], $this->ran);
+    }
+
+    public function testItIgnoresRepeatedStoreIds(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['2', '1', '2'],
+            '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:last_30_days:stores_2,1:none'], $this->ran);
+    }
+
+    public function testItSelectsTheAllStoresScenarioWithStoreZero(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0'], '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:last_30_days:all_stores:none'], $this->ran);
+    }
+
+    public function testItRunsAllStoresScenariosWithEmptyStoreIds(): void
+    {
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0'], '--compare' => 'none',
+        ]);
+
+        self::assertSame(['sales_overview:last_30_days:all_stores:none' => []], $this->ranStoreIds);
+    }
+
+    public function testItRejectsStoreZeroCombinedWithOtherStoreIds(): void
+    {
+        foreach ([['0', '1'], ['00', '2']] as $stores) {
+            $exit = $this->runMatrix(['--preset' => ['sales_overview'], '--store' => $stores]);
+
+            self::assertSame(Command::FAILURE, $exit);
+        }
+        self::assertSame([], $this->ran);
+    }
+
+    public function testItCollapsesTheStoreVariantsWithStoreZeroAlone(): void
+    {
+        $this->runMatrix(['--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0']]);
+
+        self::assertSame([
+            'sales_overview:last_30_days:all_stores:none',
+            'sales_overview:last_30_days:all_stores:previous_period',
+        ], $this->ran);
+    }
+
+    public function testItCodesExpensiveScenariosWithStoreZeroAsAllStores(): void
+    {
+        $this->runMatrix(['--preset' => ['new_vs_returning'], '--store' => ['0']]);
+
+        self::assertSame(['expensive_report@stores=all' => []], $this->ranStoreIds);
+    }
+
+    public function testItForwardsStoreZeroToTheConcurrentWorkers(): void
+    {
+        $this->concurrentRunner->expects(self::once())->method('run')
+            ->with(
+                self::callback(static fn (array $arguments): bool => \in_array('--store=0', $arguments, true)
+                    && \in_array('--compare=none', $arguments, true)),
+                2
+            )
+            ->willReturn(new ConcurrencySummary([], 0));
+
+        $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['0'], '--compare' => 'none',
+            '--concurrency' => '2',
+        ]);
+    }
+
+    public function testItRunsTheConcurrencyModeOnADatedPresetWithStoreAndCompare(): void
+    {
+        $this->concurrentRunner->expects(self::once())->method('run')->willReturn(new ConcurrencySummary([], 0));
+
+        $exit = $this->runMatrix([
+            '--preset' => ['sales_overview'], '--range' => 'last_30_days', '--store' => ['1'], '--compare' => 'none',
+            '--concurrency' => '4',
+        ]);
+
+        self::assertSame(Command::SUCCESS, $exit);
+    }
+
+    /**
+     * Runs the command against the real default matrix shape built by the real ScenarioProvider.
+     *
+     * @param array<string,mixed> $options
+     * @return int The exit code.
+     */
+    private function runMatrix(array $options): int
+    {
+        $store = $this->createStub(StoreInterface::class);
+        $store->method('getId')->willReturn(1);
+        $storeManager = $this->createStub(StoreManagerInterface::class);
+        $storeManager->method('getStores')->willReturn([1 => $store]);
+        $scopeResolver = $this->createStub(ReportScopeResolver::class);
+        $scopeResolver->method('resolve')->willReturn(new ReportScope(1, 'Europe/Rome', 1, ['Europe/Rome']));
+        $clock = $this->createStub(ClockInterface::class);
+        $clock->method('today')->willReturn(new DateTimeImmutable('2026-03-15'));
+        $provider = new ScenarioProvider(
+            $storeManager,
+            $scopeResolver,
+            $clock,
+            ['sales_overview'],
+            ['stock_value'],
+            ['last_30_days', 'last_12_months'],
+            [
+                'new_vs_returning_12m' => ['preset' => 'sales_overview', 'dateRange' => 'last_12_months'],
+                'expensive_report' => ['preset' => 'new_vs_returning', 'dateRange' => 'last_30_days'],
+            ],
+        );
+        $reportConnection = $this->createStub(ReportConnection::class);
+        $reportConnection->method('get')->willReturn($this->connection);
+        $tester = new CommandTester(new BenchmarkCommand(
+            $this->createStub(State::class),
+            $this->trustedContext,
+            $provider,
+            $this->runner,
+            $reportConnection,
+            $this->createStub(Guardrails::class),
+            $this->filesystem,
+            $this->concurrentRunner,
+            $this->barrierClock,
+        ));
+
+        $exit = $tester->execute($options);
+        $this->matrixDisplay = $tester->getDisplay();
+
+        return $exit;
     }
 
     private function scenario(string $code, string $preset, DateRangeType $type): Scenario

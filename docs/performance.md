@@ -76,8 +76,8 @@ in `app/etc/env.php`). The seed modifies the **main** database: use a developmen
    `large.xml` (500 000 orders, 25 000 customers, 50 000 products). Run the spread only if the toolkit command succeeded.
 
    Measured durations (see [Results](#results)): small about 1 minute; medium 7 min 22 s for the fixtures plus about 55 min
-   for the spread; large 28 min 48 s for the fixtures, while the shipped spread did not finish in 20 hours (an indexed copy of
-   the script finished in 304 s). A fix to the shipped `spread-orders.sql` is planned. Disk space and time depend on the machine.
+   for the spread; large 28 min 48 s for the fixtures plus 157 s for the spread (indexed script). The medium spread and the first large
+   attempt ran before the temporary tables of `spread-orders.sql` were indexed (see Results). Disk space and time depend on the machine.
 
    Caveats:
    - `<orders>` in the profiles is a **total target**, not an increment (seeding small then medium adds the difference).
@@ -161,7 +161,8 @@ Large seed deviation: the shipped `dev/benchmark/spread-orders.sql` stalled on t
 joins temporary tables that have no index, so MySQL runs a nested loop. The customer `UPDATE` ran about 20.8 hours and was
 killed (clean rollback). The large data was spread with a copy of the script that adds
 `ALTER TABLE tmp_ar_customers ADD INDEX (position)` and `ALTER TABLE tmp_ar_guest_emails ADD INDEX (entity_id)`, which
-finished in 304 s. The medium spread with the shipped script took about 55 minutes. A fix to the shipped script is planned.
+finished in 304 s. The medium spread with the shipped script took about 55 minutes. The shipped script now indexes both
+temporary tables (same two statements).
 
 Large timeouts: `sales_overview` (12 months), `new_vs_returning` (12 months) and `dead_stock` aborted on the 30 s statement
 timeout (`performance/query_timeout_ms`) and are recorded as "timeout (> 30 s)". The benchmark aborts the whole preset run

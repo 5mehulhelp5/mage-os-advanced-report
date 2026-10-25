@@ -54,6 +54,8 @@ SELECT (ROW_NUMBER() OVER (ORDER BY entity_id)) - 1 AS position,
        lastname,
        group_id
 FROM customer_entity;
+-- Indexed join keys: without them the multi-table UPDATE is a nested loop (hours on the large profile)
+ALTER TABLE tmp_ar_customers ADD INDEX idx_position (position);
 
 UPDATE sales_order o
 INNER JOIN tmp_ar_customers c ON c.position = o.entity_id MOD @customer_count
@@ -72,6 +74,7 @@ CREATE TEMPORARY TABLE tmp_ar_guest_emails AS
 SELECT entity_id, customer_email
 FROM sales_order
 WHERE entity_id MOD 40 IN (7, 27) AND customer_is_guest = 1;
+ALTER TABLE tmp_ar_guest_emails ADD INDEX idx_entity_id (entity_id);
 
 UPDATE sales_order o
 INNER JOIN tmp_ar_guest_emails g ON g.entity_id = o.entity_id - 10

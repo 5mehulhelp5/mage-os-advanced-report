@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Integration\Schema;
 
 use Magento\Framework\App\ResourceConnection;
-use Magento\Framework\Setup\Declaration\Schema\UpToDateDeclarativeSchema;
+use Magento\Framework\Setup\Declaration\Schema\Diff\SchemaDiff;
+use Magento\Framework\Setup\Declaration\Schema\Dto\TableElementInterface;
+use Magento\Framework\Setup\Declaration\Schema\SchemaConfigInterface;
 use Magento\TestFramework\Fixture\AppIsolation;
 use Magento\TestFramework\Helper\Bootstrap;
 use PHPUnit\Framework\TestCase;
@@ -41,26 +43,28 @@ final class InstallationTest extends TestCase
 
     public function testItReportsTheDeclarativeSchemaAsUpToDateAfterInstallation(): void
     {
-        $validator = Bootstrap::getObjectManager()->get(UpToDateDeclarativeSchema::class);
-        $details = $validator->getDetails();
+        $objectManager = Bootstrap::getObjectManager();
+        $schemaConfig = $objectManager->get(SchemaConfigInterface::class);
+        $diff = $objectManager->get(SchemaDiff::class)
+            ->diff($schemaConfig->getDeclarationConfig(), $schemaConfig->getDbConfig());
 
-        $moduleTables = array_keys($this->declaredTables());
+        $moduleTables = array_diff(array_keys($this->declaredTables()), ['sales_order', 'sales_order_item']);
         $moduleIndexes = array_merge(...array_values(array_map('array_keys', $this->declaredIndexes())));
         $moduleChanges = [];
-        foreach ($details['changes'] ?? [] as $change) {
-            $isModuleTable = \in_array($change['table'] ?? null, $moduleTables, true)
-                && !\in_array($change['table'], ['sales_order', 'sales_order_item'], true);
-            $isModuleIndex = \in_array($change['name'] ?? null, $moduleIndexes, true);
-            if ($isModuleTable || $isModuleIndex) {
-                $moduleChanges[] = $change;
+        foreach ($diff->getAll() ?? [] as $operations) {
+            foreach ($operations as $operation => $changes) {
+                foreach ($changes as $change) {
+                    $element = $change->getNew() ?: $change->getOld();
+                    $name = $element->getName();
+                    $table = $element instanceof TableElementInterface ? $element->getTable()->getName() : $name;
+                    if (\in_array($table, $moduleTables, true) || \in_array($name, $moduleIndexes, true)) {
+                        $moduleChanges[] = $operation . ': ' . $table . '.' . $name;
+                    }
+                }
             }
         }
 
-        $this->assertSame(
-            [],
-            $moduleChanges,
-            'Pending declarative schema changes for the module: ' . json_encode($details, JSON_PRETTY_PRINT)
-        );
+        $this->assertSame([], $moduleChanges, 'Pending declarative schema changes for the module');
     }
 
     public function testItHasAWhitelistEntryForEveryModuleIndex(): void

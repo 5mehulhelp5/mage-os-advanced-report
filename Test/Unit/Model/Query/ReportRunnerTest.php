@@ -52,6 +52,7 @@ use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Query\ResultCache;
 use MageOS\AdvancedReport\Model\Query\ResultCacheLock;
 use MageOS\AdvancedReport\Model\Query\ResultCacheWriteGuard;
+use MageOS\AdvancedReport\Model\Query\ResultConfigFingerprint;
 use MageOS\AdvancedReport\Model\Query\SortOrder;
 use MageOS\AdvancedReport\Model\Query\SourceResolver;
 use MageOS\AdvancedReport\Model\Security\AclContext;
@@ -84,6 +85,8 @@ final class ReportRunnerTest extends TestCase
     private LocaleResolverInterface $localeResolver;
 
     private AclContext $aclContext;
+
+    private ResultConfigFingerprint $resultConfigFingerprint;
 
     private Dataset $dataset;
 
@@ -125,6 +128,9 @@ final class ReportRunnerTest extends TestCase
 
         $this->aclContext = $this->createStub(AclContext::class);
         $this->aclContext->method('getFingerprint')->willReturn('acl-fp');
+
+        $this->resultConfigFingerprint = $this->createStub(ResultConfigFingerprint::class);
+        $this->resultConfigFingerprint->method('get')->willReturn([]);
     }
 
     public function testItPassesTheAclFingerprintToTheCacheKeyFromTheRunner(): void
@@ -157,6 +163,45 @@ final class ReportRunnerTest extends TestCase
             'queryPlanner' => $queryPlanner,
             'sourceResolver' => $sourceResolver,
             'resultCache' => $resultCache,
+        ])->run($this->buildRequest());
+    }
+
+    public function testItPassesTheResultConfigFingerprintToTheCacheKeyBuilder(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => null]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->expects(self::once())->method('buildKey')->with(
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            ['maxRows' => 500],
+        )->willReturn('cache-key');
+        $resultCache->method('load')->willReturn([
+            'columns' => [], 'rows' => [], 'totals' => ['metrics' => []], 'totalRowCount' => 0,
+            'range' => null, 'comparisonRange' => null, 'currencyCode' => 'USD', 'warnings' => [],
+            'source' => 'mysql', 'generatedAt' => '2026-09-25T10:00:00+00:00', 'meta' => [],
+        ]);
+
+        $fingerprint = $this->createStub(ResultConfigFingerprint::class);
+        $fingerprint->method('get')->willReturn(['maxRows' => 500]);
+
+        $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'resultCache' => $resultCache,
+            'resultConfigFingerprint' => $fingerprint,
         ])->run($this->buildRequest());
     }
 
@@ -1001,6 +1046,7 @@ final class ReportRunnerTest extends TestCase
             $this->localeResolver,
             $overrides['aclContext'] ?? $this->aclContext,
             $overrides['resultCacheLock'] ?? new ResultCacheLock($this->createStub(LockManagerInterface::class), new ResultCacheWriteGuard()),
+            $overrides['resultConfigFingerprint'] ?? $this->resultConfigFingerprint,
         );
     }
 

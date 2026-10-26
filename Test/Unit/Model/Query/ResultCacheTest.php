@@ -109,6 +109,25 @@ final class ResultCacheTest extends TestCase
         self::assertNotSame($baseline, $differentConfigVersion);
     }
 
+    public function testItChangesTheCacheKeyWhenTheResultConfigFingerprintChanges(): void
+    {
+        $request = $this->buildRequest();
+        $build = fn (array $resultConfig): string => $this->resultCache->buildKey(
+            $request,
+            'mysql',
+            'config-v1',
+            ['complete'],
+            ['main' => ['from' => '2026-09-01', 'to' => '2026-09-26']],
+            'en_US',
+            '',
+            [],
+            $resultConfig,
+        );
+
+        self::assertNotSame($build(['maxRows' => 500]), $build(['maxRows' => 1000]));
+        self::assertSame($build(['a' => 1, 'b' => 2]), $build(['b' => 2, 'a' => 1]));
+    }
+
     public function testItBuildsDifferentCacheKeysForDifferentAclContexts(): void
     {
         $request = $this->buildRequest();

@@ -53,6 +53,8 @@ class ResultCache
      * @param string $aclContext Fingerprint of the admin's allowed ACL resources.
      * @param array<string,mixed> $scopeContext Report scope fingerprint: timezone(s), first day
      *                                          of week and base currencies of the stores in scope.
+     * @param array<string,mixed> $resultConfig Fingerprint of the result-affecting settings
+     *                                          ({@see ResultConfigFingerprint::get()}).
      */
     public function buildKey(
         ReportRequestInterface $request,
@@ -63,6 +65,7 @@ class ResultCache
         string $locale,
         string $aclContext = '',
         array $scopeContext = [],
+        array $resultConfig = [],
     ): string {
         $normalizedRequest = $this->requestFactory->toArray($request);
         unset($normalizedRequest['bypassCache'], $normalizedRequest['source'], $normalizedRequest['storeIds']);
@@ -77,6 +80,7 @@ class ResultCache
             'locale' => $locale,
             'aclContext' => $aclContext,
             'scopeContext' => $this->normalizeScopeContext($scopeContext),
+            'resultConfig' => $resultConfig,
         ]);
 
         return hash('sha256', (string) $this->serializer->serialize($payload));

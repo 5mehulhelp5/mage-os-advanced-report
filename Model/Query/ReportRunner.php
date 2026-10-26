@@ -58,6 +58,7 @@ class ReportRunner implements ReportRunnerInterface
         private readonly LocaleResolverInterface $localeResolver,
         private readonly AclContext $aclContext,
         private readonly ResultCacheLock $resultCacheLock,
+        private readonly ResultConfigFingerprint $resultConfigFingerprint,
     ) {
     }
 
@@ -294,6 +295,7 @@ class ReportRunner implements ReportRunnerInterface
             $this->localeResolver->getLocale(),
             $this->aclContext->getFingerprint(),
             $this->buildScopeContext($request, $plan['main']->scope),
+            $this->resultConfigFingerprint->get(),
         );
     }
 

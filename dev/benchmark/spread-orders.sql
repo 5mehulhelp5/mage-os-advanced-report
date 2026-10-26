@@ -20,6 +20,9 @@
 -- Currency:  toolkit orders are in USD while the base currency of this shop may be EUR; currencies
 --            are not rewritten, so reports show USD amounts.
 -- Orders:    `<orders>` of the profiles is a TOTAL target, not an increment.
+-- Items:     the toolkit writes parent_item_id = 0 (the string 'null' cast to int) for top-level
+--            items, while checkout writes NULL; it is reset to NULL so the top_level_item filter
+--            (parent_item_id IS NULL) matches them.
 
 SET @anchor = CURDATE();
 SET @customer_count = (SELECT COUNT(*) FROM customer_entity);
@@ -89,6 +92,8 @@ INNER JOIN sales_order o ON o.entity_id = i.order_id
 SET i.created_at = o.created_at,
     i.updated_at = o.created_at,
     i.qty_canceled = IF(o.status = 'canceled', i.qty_ordered, 0);
+
+UPDATE sales_order_item SET parent_item_id = NULL WHERE parent_item_id = 0;
 
 UPDATE sales_order_grid g
 INNER JOIN sales_order o ON o.entity_id = g.entity_id

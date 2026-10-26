@@ -19,6 +19,18 @@ report category is. Costs and safeguards are in [performance](performance.md).
 | Locale | the admin locale |
 | ACL context | `AclContext::getFingerprint()`: users with different permissions never share an entry, see [security](security.md#cache) |
 | Scope fingerprint | the timezone(s) of the scope, the first day of week and the base currencies of the stores, so changing a store timezone, first day or base currency produces a new key |
+| Result config | `ResultConfigFingerprint`: report attributes (sorted), dead stock days, max rows, report connection name and `cataloginventory/item_options/min_qty` |
+
+The result-config component holds the settings that change the result itself. The query timeout and the two cache TTLs are
+left out on purpose: they change how a report runs or how long an entry lives, never its content, so changing them keeps the
+existing entries valid (`ResultConfigKeyTest::testItKeepsServingTheCachedEntryWhenOnlyTheQueryTimeoutChanges`). The component
+is global: a `min_qty` change gives every report, sales reports included, a new key.
+
+Each setting is proven to produce a new key by `ResultConfigKeyTest` (report attributes, dead stock days, max rows,
+inventory `min_qty`, connection name).
+
+Cached results go through a JSON round trip: a float without fractional part comes back as an integer (`10.0` becomes `10`).
+Values are equal, types may differ; tests compare cached and fresh rows with `assertEquals` for this reason.
 
 ## TTL
 
@@ -31,10 +43,19 @@ report category is. Costs and safeguards are in [performance](performance.md).
 
 - Saving the `mageos_advancedreport` configuration section cleans the whole cache type (`CleanReportCacheObserver`): it covers
   settings that change results without being in the key (report attributes, dead stock days, counted statuses, connection).
+- Changes made outside the admin (`bin/magento config:set`, `app:config:import`) do not run the observer, but they produce a
+  new key through the result-config component, so the old entries are no longer read and expire by TTL (R45). The admin
+  save still cleans the type.
 - `bin/magento cache:clean advanced_report` (or `cache:flush`).
 - The Refresh button sends `bypassCache`: the report is executed and the entry is overwritten (the lock is not taken).
 - `advanced-report:benchmark --concurrency=N` cleans the whole cache type before starting the workers.
 - There is no event-driven invalidation on order, refund or shipment events (R21, accepted).
+
+## Labels
+
+Labels are part of the cached result. Renames of products, categories, stores, customer groups, attribute options and status
+labels stay stale until Refresh or the TTL (R44, accepted); `CatalogInvalidationTest::testItKeepsServingThePreviousProductNameLabelUntilTheCacheIsBypassed`
+proves it for a product name.
 
 ## Lock
 
@@ -48,12 +69,26 @@ missing: concurrent identical misses run the report once and the waiting request
   because of it (this is the lock fallback under contention: duplicated work, still correct).
 - A cache hit takes no lock. Refresh (`bypassCache`) executes and saves without the lock.
 - The default backend is the database (`GET_LOCK`), which is re-entrant per DB session: contention only exists across processes.
+- Evidence for the stampede protection is the stub-based lock tests plus the `advanced-report:benchmark --concurrency=N`
+  results in [performance](performance.md#results). There is no cross-process test, by decision.
 - The CSV export neither takes the lock nor saves; it reads an existing entry or executes once.
 
 ## Failures are never cached
 
 The result is saved only after a successful execution. A timeout, a connection error, a validation error or any exception
-leaves no entry; the next request executes again.
+leaves no entry; the next request executes again. `FailureCachingTest` proves it for:
+
+- a comparison period that fails (`testItNeverCachesAResultWhoseComparisonPeriodFails`);
+- the query timeout (`testItNeverCachesAReportThatHitsTheQueryTimeout`);
+- the mixed base currency rejection (`testItNeverCachesAReportRejectedBecauseTheOrdersOfThePeriodMixBaseCurrencies`). The
+  rejection of the store configuration happens in validation, before the cache is consulted; the one proven on the save path
+  is the order data probe, so the test pins `storeIds` to `[1]` to keep the store validation from firing first;
+- a preset whose nested report run fails (`testItNeverCachesAPresetWhoseNestedReportRunFails`).
+
+## Truncated results
+
+A result truncated by `max_rows` is a successful execution: it is cached together with its truncation warning, and a cache
+hit returns the same warning (`FailureCachingTest::testItKeepsTheTruncationWarningOnACachedTruncatedResult`).
 
 ## Freshness per report category
 
@@ -63,5 +98,10 @@ leaves no entry; the next request executes again.
 | Sales and orders, closed period | up to the closed TTL (24 h) | refunds and shipments change past periods: returns, net sales and units to ship are attributed to the order date (R04, R05), so a closed period can change after it was cached |
 | Stock (physical, salable, dead stock, never sold, low stock coverage) | up to the closed TTL (24 h) | the underlying data is live; only the cache delays it. Stock presets with an order based part (30-day sales) are bounded by the same TTL |
 | Customers (`days_since_last_order`) | up to 24 h | relative to today, so a cached closed period can be a day stale (R18) |
+
+Proof by integration test: `SalesInvalidationTest` (cancellation, refund and shipment keep the cached values until bypass; open
+period expiry; closed period TTL) covers the sales rows, `CatalogInvalidationTest` (stock quantity and product name stay
+until bypass; stock without a date range uses the closed TTL) covers the stock rows. `ResultCacheTest` covers the generic
+behaviour.
 
 Use Refresh when current data is needed, or lower `cache_ttl_closed_period` if 24 h is too long for stock reports.

@@ -484,7 +484,7 @@ pagination does not reduce the database work. Details live in three documents:
 - [Performance](docs/performance.md): statements per report shape, safeguards (timeout on every statement, `max_rows`,
   granularity limits, export limits, connection errors), the benchmark procedure (performance toolkit seed,
   `advanced-report:benchmark`, `advanced-report:explain`), budgets, the results table and the known bottlenecks.
-- [Cache](docs/cache.md): key components, TTLs, invalidation, the stampede lock and the freshness per report category.
+- [Cache](docs/cache.md): key components (including the result config), TTLs, invalidation, label staleness, failures, the stampede lock and the freshness per report category.
 - [Indexes](docs/indexes.md): rationale of every index, removable indexes and the installation time / maintenance window.
 
 In short:
@@ -534,7 +534,7 @@ The full list with severity and owner is in the [risk register](docs/risk-regist
 - [Time and currency](docs/time-and-currency.md): timezone used for filtering, grouping, comparison and display, DST, the fallback without timezone tables, the currency of every financial metric, rejection rules and rounding.
 - [Metric inventory](docs/metric-inventory.md): generated list of every metric, its joins, fan-out risk and dependencies.
 - [Performance](docs/performance.md): statements per report, safeguards, benchmark procedure and results table, bottlenecks, async evaluation.
-- [Cache](docs/cache.md): cache key, TTLs, invalidation, stampede lock and freshness per report category.
+- [Cache](docs/cache.md): cache key (including the result config), TTLs, invalidation, label staleness, failures, stampede lock and freshness per report category.
 - [Indexes](docs/indexes.md): rationale of every index, removable indexes, installation time and maintenance window.
 - [Security](docs/security.md): ACL model per entry point and dataset, data classification, cache and logging.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.

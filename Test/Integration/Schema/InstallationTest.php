@@ -10,6 +10,7 @@ use Magento\Framework\Setup\Declaration\Schema\Dto\TableElementInterface;
 use Magento\Framework\Setup\Declaration\Schema\SchemaConfigInterface;
 use Magento\TestFramework\Fixture\AppIsolation;
 use Magento\TestFramework\Helper\Bootstrap;
+use MageOS\AdvancedReport\Test\Integration\Helper\ServerFlavourAssertions;
 use PHPUnit\Framework\TestCase;
 use SimpleXMLElement;
 
@@ -43,6 +44,41 @@ final class InstallationTest extends TestCase
 
     public function testItReportsTheDeclarativeSchemaAsUpToDateAfterInstallation(): void
     {
+        $this->assertSame([], $this->moduleSchemaChanges(), 'Pending declarative schema changes for the module');
+    }
+
+    public function testItComputesTheSchemaDiffIdenticallyOnMysqlAndMariadbInstalls(): void
+    {
+        // No flavour branch on purpose: the module schema (declared columns and index names) must diff to nothing
+        // on both servers, so a flavour-only difference (type display width, index naming) fails here.
+        $this->assertSame(
+            [],
+            $this->moduleSchemaChanges(),
+            'Schema diff of the module is not empty on ' . ServerFlavourAssertions::current()->value
+        );
+    }
+
+    public function testItHasAWhitelistEntryForEveryModuleIndex(): void
+    {
+        $whitelist = json_decode(
+            (string) file_get_contents(self::MODULE_ROOT . '/etc/db_schema_whitelist.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        foreach ($this->declaredIndexes() as $table => $indexes) {
+            foreach (array_keys($indexes) as $referenceId) {
+                $this->assertArrayHasKey($referenceId, $whitelist[$table]['index'] ?? [], $table);
+            }
+        }
+    }
+
+    /**
+     * @return string[]
+     */
+    private function moduleSchemaChanges(): array
+    {
         $objectManager = Bootstrap::getObjectManager();
         $schemaConfig = $objectManager->get(SchemaConfigInterface::class);
         $diff = $objectManager->get(SchemaDiff::class)
@@ -64,23 +100,7 @@ final class InstallationTest extends TestCase
             }
         }
 
-        $this->assertSame([], $moduleChanges, 'Pending declarative schema changes for the module');
-    }
-
-    public function testItHasAWhitelistEntryForEveryModuleIndex(): void
-    {
-        $whitelist = json_decode(
-            (string) file_get_contents(self::MODULE_ROOT . '/etc/db_schema_whitelist.json'),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
-
-        foreach ($this->declaredIndexes() as $table => $indexes) {
-            foreach (array_keys($indexes) as $referenceId) {
-                $this->assertArrayHasKey($referenceId, $whitelist[$table]['index'] ?? [], $table);
-            }
-        }
+        return $moduleChanges;
     }
 
     /**

@@ -83,6 +83,9 @@ final class RunnerAuthorizationTest extends TestCase
     }
 
     /**
+     * PHPUnit 9 (Magento 2.4.7) ignores attributes, hence the annotation next to #[DataProvider].
+     *
+     * @dataProvider salesDatasetProvider
      * @param string[] $metrics
      */
     #[DataProvider('salesDatasetProvider')]

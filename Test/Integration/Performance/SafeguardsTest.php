@@ -23,10 +23,13 @@ use Magento\TestFramework\Fixture\DataFixture;
 use Magento\TestFramework\Fixture\DbIsolation;
 use Magento\TestFramework\Helper\Bootstrap;
 use Magento\TestFramework\TestCase\AbstractBackendController;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavour;
 use MageOS\AdvancedReport\Model\DataSource\ReportConnectionUnavailableException;
 use MageOS\AdvancedReport\Test\Integration\Fixture\SetOrderCreatedAt;
 use MageOS\AdvancedReport\Test\Integration\Helper\ReportTestRunner;
+use MageOS\AdvancedReport\Test\Integration\Helper\ServerFlavourAssertions;
 
 /**
  * Query safeguards on the real database: execution time hint on every report statement and an explicit failure
@@ -115,6 +118,25 @@ final class SafeguardsTest extends AbstractBackendController
         }
     }
 
+    public function testItAssertsTheMysqlExecutionTimeGuardrailVariableOnMysqlServers(): void
+    {
+        ServerFlavourAssertions::skipUnless($this, ServerFlavour::Mysql);
+
+        $this->assertNotNull($this->reportConnection()->fetchOne('SELECT @@SESSION.max_execution_time'));
+        $this->assertMatchesRegularExpression(
+            '/^\s*SELECT\s+\/\*\+\s*MAX_EXECUTION_TIME\(\d+\)\s*\*\/\s+/i',
+            $this->guardedStatement()
+        );
+    }
+
+    public function testItAssertsTheMariadbStatementTimeGuardrailVariableOnMariadbServers(): void
+    {
+        ServerFlavourAssertions::skipUnless($this, ServerFlavour::MariaDb);
+
+        $this->assertNotNull($this->reportConnection()->fetchOne('SELECT @@SESSION.max_statement_time'));
+        $this->assertMatchesRegularExpression('/^\s*SET\s+STATEMENT\s+max_statement_time=\d+\s+FOR\s+/i', $this->guardedStatement());
+    }
+
     #[Config('mageos_advancedreport/performance/connection_name', 'missing')]
     public function testItFailsExplicitlyWhenTheReportConnectionIsMissing(): void
     {
@@ -143,6 +165,16 @@ final class SafeguardsTest extends AbstractBackendController
         $this->assertTrue($payload['error']);
         $this->assertStringContainsString('"missing"', $payload['message']);
         $this->assertStringContainsString('not available', $payload['message']);
+    }
+
+    private function reportConnection(): \Magento\Framework\DB\Adapter\AdapterInterface
+    {
+        return Bootstrap::getObjectManager()->get(ReportConnection::class)->get();
+    }
+
+    private function guardedStatement(): string
+    {
+        return Bootstrap::getObjectManager()->get(Guardrails::class)->applyTimeout('SELECT 1');
     }
 
     private function isExcluded(string $sql): bool

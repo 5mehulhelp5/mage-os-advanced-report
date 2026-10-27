@@ -11,10 +11,12 @@ use Magento\TestFramework\Fixture\AppIsolation;
 use Magento\TestFramework\Fixture\DbIsolation;
 use Magento\TestFramework\Helper\Bootstrap;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\SelectBuilder;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ServerFlavour;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Preset\PresetQueryPool;
 use MageOS\AdvancedReport\Model\Query\PresetRequestBuilder;
 use MageOS\AdvancedReport\Model\Query\QueryPlanner;
+use MageOS\AdvancedReport\Test\Integration\Helper\ServerFlavourAssertions;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -52,6 +54,19 @@ final class IndexUsageTest extends TestCase
     public function testItListsTheProductIndexAmongThePossibleKeysOfTheDeadStockAntiJoin(): void
     {
         $this->assertContains('SALES_ORDER_ITEM_PRODUCT_ID', $this->possibleKeys($this->presetSelect('dead_stock')));
+    }
+
+    public function testItAssertsIndexUsageOnlyForIndexesTheDetectedFlavourIsExpectedToChoose(): void
+    {
+        // MySQL lists both product indexes for the anti-join; MariaDB may list only the covering composite one.
+        $expected = ServerFlavourAssertions::current() === ServerFlavour::MariaDb
+            ? ['SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID']
+            : ['SALES_ORDER_ITEM_PRODUCT_ID', 'SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID'];
+
+        $possible = $this->possibleKeys($this->presetSelect('dead_stock'));
+        foreach ($expected as $index) {
+            $this->assertContains($index, $possible, $index);
+        }
     }
 
     public function testItListsEveryNewIndexAmongThePossibleKeysOfTheStatementItServes(): void

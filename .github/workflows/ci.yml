@@ -25,7 +25,7 @@ jobs:
   compute-matrix:
     runs-on: ubuntu-latest
     outputs:
-      resolved: ${{ steps.resolve.outputs.resolved }}
+      resolved: ${{ steps.final.outputs.resolved }}
     steps:
       # resolve-check-config reads .github/check-extension.json from the workspace.
       - uses: actions/checkout@v7
@@ -34,15 +34,15 @@ jobs:
         id: supported-version
 
       # Keep only entries matching the module PHP constraint (~8.3 || ~8.4 || ~8.5).
-      # Temporary: 2.4.7-p10 is left out too. Composer refuses its league/flysystem 2.x
-      # (advisory PKSA-w9tt-7782-78jx) and no fixed 2.x exists. While it is out, nothing tests
-      # the 2.4.7 floor. Drop the version filter once a fix is released.
+      # 2.4.7-p10 stays in: its league/flysystem 2.x is flagged by advisory PKSA-w9tt-7782-78jx and
+      # Composer blocks it, which is handled per install by the "Ignore known Composer advisory" step
+      # of each job that builds a Magento install.
       - id: matrix
         env:
           MATRIX: ${{ steps.supported-version.outputs.matrix }}
         run: |
-          echo "matrix=$(jq -c --arg v '2.4.7-p10' '
-            .include |= map(select(.version != $v and (.php | tostring | test("^8\\.[345]$"))))
+          echo "matrix=$(jq -c '
+            .include |= map(select(.php | tostring | test("^8\\.[345]$")))
             | .include as $kept
             | .magento |= map(select(. as $m | any($kept[]; .magento == $m)))
           ' <<< "$MATRIX")" >> "$GITHUB_OUTPUT"
@@ -56,6 +56,45 @@ jobs:
         with:
           kind: extension
           matrix: ${{ steps.matrix.outputs.matrix }}
+
+      # Magento 2.4.7 bundles PHPUnit 9.6, which ignores #[DataProvider] attributes. Test/Unit relies on
+      # them (Rector turns annotations into attributes), so 2.4.7 is dropped from unit-test-extension only.
+      # The unit suite runs on PHPUnit 13 in the quality job; compile-extension and integration-test keep
+      # 2.4.7 (Test/Integration carries @dataProvider doc-comments next to the attributes).
+      #
+      # integration_test also gets one MariaDB entry for 2.4.7 (MariaDB 10.6) and 2.4.9 (MariaDB 11.4), copied
+      # from the resolved entry with only services.mysql.image and its health check swapped (mariadb images
+      # have no mysqladmin; they accept the MYSQL_* env vars, so the service name and the install-config seds
+      # stay unchanged). MySQL 8.0 is the 2.4.7-p10 entry's own image; 2.4.8/2.4.9 use MySQL 8.4.
+      # The matrix drops its `magento` axis and lists everything under `include`: with the axis, include
+      # entries sharing a `magento` value would overwrite each other's `services`.
+      - id: final
+        env:
+          RESOLVED: ${{ steps.resolve.outputs.resolved }}
+        run: |
+          echo "resolved=$(jq -c '
+            (.["unit-test-extension"].matrix // empty) |= (
+              .include |= map(select((.version | tostring | startswith("2.4.7")) | not))
+              | .include as $kept
+              | .magento |= map(select(. as $m | any($kept[]; .magento == $m)))
+            )
+            | (.integration_test.matrix // empty) |= (
+              .include as $base
+              | def mariadb:
+                  if startswith("2.4.7") then "mariadb:10.6"
+                  elif startswith("2.4.9") then "mariadb:11.4"
+                  else empty end;
+                {include: ($base + [
+                  $base[]
+                  | select(.services.mysql)
+                  | (.version | tostring | mariadb) as $image
+                  | .services.mysql |= (
+                      .image = $image
+                      | .options = "--health-cmd=\"healthcheck.sh --connect --innodb_initialized\" --health-interval=10s --health-timeout=5s --health-retries=10"
+                    )
+                ])}
+            )
+          ' <<< "$RESOLVED")" >> "$GITHUB_OUTPUT"
 
   # PHPUnit 13 (require-dev) unit suite, PHP-CS-Fixer, PHPStan, Rector, PHPMD, ESLint and XSD validation,
   # run on the standalone module install. phpunit/phpunit ^13.3 needs PHP >= 8.4.
@@ -110,6 +149,14 @@ jobs:
           magento_version: ${{ matrix.magento }}
           magento_repository: ${{ env.MAGENTO_REPOSITORY }}
           composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+      # Advisory PKSA-w9tt-7782-78jx blocks Magento 2.4.7-p10 (league/flysystem 2.x, no fixed 2.x exists).
+      # setup-magento only runs `create-project --no-install`, so the first dependency resolution is the
+      # `composer require` below. Ignore this one advisory in the CI install only (never in the module
+      # composer.json; security blocking itself stays on). Harmless on 2.4.8+.
+      - name: Ignore known Composer advisory
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config --json audit.ignore '["PKSA-w9tt-7782-78jx"]'
 
       - name: Add extension repository
         working-directory: ${{ steps.setup-magento.outputs.path }}
@@ -168,6 +215,14 @@ jobs:
           magento_repository: ${{ env.MAGENTO_REPOSITORY }}
           composer_auth: ${{ secrets.COMPOSER_AUTH }}
 
+      # Advisory PKSA-w9tt-7782-78jx blocks Magento 2.4.7-p10 (league/flysystem 2.x, no fixed 2.x exists).
+      # setup-magento only runs `create-project --no-install`, so the first dependency resolution is the
+      # `composer require` below. Ignore this one advisory in the CI install only (never in the module
+      # composer.json; security blocking itself stays on). Harmless on 2.4.8+.
+      - name: Ignore known Composer advisory
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config --json audit.ignore '["PKSA-w9tt-7782-78jx"]'
+
       - name: Add extension repository
         working-directory: ${{ steps.setup-magento.outputs.path }}
         run: composer config repositories.local path ${{ github.workspace }}
@@ -218,6 +273,7 @@ jobs:
 
   # Test/Integration inside a Magento install, with the services from the matrix.
   integration-test:
+    name: Integration (${{ matrix.version }}, ${{ matrix.services.mysql.image }})
     needs: compute-matrix
     if: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['integration_test'].enabled != false }}
     runs-on: ${{ matrix.os }}
@@ -237,6 +293,14 @@ jobs:
           magento_version: ${{ matrix.magento }}
           magento_repository: ${{ env.MAGENTO_REPOSITORY }}
           composer_auth: ${{ secrets.COMPOSER_AUTH }}
+
+      # Advisory PKSA-w9tt-7782-78jx blocks Magento 2.4.7-p10 (league/flysystem 2.x, no fixed 2.x exists).
+      # setup-magento only runs `create-project --no-install`, so the first dependency resolution is the
+      # `composer require` below. Ignore this one advisory in the CI install only (never in the module
+      # composer.json; security blocking itself stays on). Harmless on 2.4.8+.
+      - name: Ignore known Composer advisory
+        working-directory: ${{ steps.setup-magento.outputs.path }}
+        run: composer config --json audit.ignore '["PKSA-w9tt-7782-78jx"]'
 
       - name: Add extension repository
         working-directory: ${{ steps.setup-magento.outputs.path }}

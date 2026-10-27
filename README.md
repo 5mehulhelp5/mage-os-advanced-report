@@ -59,10 +59,15 @@ and in comparisons (they are never averages of averages).
 
 ## Requirements
 
-- Magento Open Source 2.4.7+ or Mage-OS, PHP 8.3+.
+- Magento Open Source 2.4.7+ or Mage-OS, PHP 8.3+ (CI matrix and status: [compatibility](docs/compatibility.md)).
+- Database: MySQL 8.0 or 8.4, or MariaDB 10.6 or 11.4 (the combinations in the CI integration matrix; MySQL 8.0 and
+  MariaDB are pending their first CI run). The report guardrail uses `MAX_EXECUTION_TIME` on MySQL and
+  `max_statement_time` on MariaDB.
+- The `advanced_report` cache type must be enabled for result caching (reports still work with it disabled, uncached).
 - `Magento_Reports` (hard dependency: the admin menu entry is a child of the Reports menu).
-- Optional: MySQL/MariaDB timezone tables (`mysql_tzinfo_to_sql`) for exact hourly reports in non-UTC store
-  timezones; without them the module falls back to an UTC-hour aggregation and warns in the diagnostics panel.
+- Recommended: MySQL/MariaDB timezone tables (`mysql_tzinfo_to_sql`) when stores use a non-UTC timezone, for exact
+  hourly and daily buckets in SQL; without them the module falls back to an UTC-hour aggregation (exact, but
+  `count_distinct`/`avg` metrics by date are empty) and warns in the diagnostics panel.
 - Optional: Magento MSI (`Magento_InventoryApi`) for multi-source stock in the `catalog_stock` dataset; the legacy
   `cataloginventory_stock_item` table is used otherwise.
 
@@ -75,9 +80,11 @@ bin/magento cache:flush
 ```
 
 `setup:upgrade` creates the `mageos_advancedreport_saved` table and adds native indexes required by the reports:
-`sales_order (customer_id, created_at)`, `sales_order (customer_email, created_at)` and `sales_order_item (product_id)`.
-On a store with a large `sales_order` table, creating these indexes can take a long time and locks
-writes on that table: run the upgrade in a maintenance window.
+`sales_order (customer_id, created_at)`, `sales_order (customer_email, created_at)`, `sales_order_item (product_id)` and
+`sales_order_item (product_id, order_id)`. The build is online (`ALGORITHM=INPLACE, LOCK=NONE`, writes continue) but costs
+I/O, temporary sort space and replica lag that grow with the table size: on a store with a large `sales_order` table run
+the upgrade outside peak traffic (maintenance window recommended) and measure first with `dev/benchmark/index-timing.sql`
+(see [indexes](docs/indexes.md#installation-time-and-maintenance-window), risk R42).
 
 ## Configuration reference
 
@@ -526,6 +533,12 @@ Details, the entry-point inventory and the data classification are in [docs/secu
 The full list with severity and owner is in the [risk register](docs/risk-register.md). Metric semantics are in the [metric definitions](docs/metric-definitions.md); timezone and currency rules are in [time and currency](docs/time-and-currency.md).
 
 - **Monetary reports and several base currencies**: a request with money metrics (or money filters) over stores or orders with different base currencies is rejected with HTTP 400 (also on Save, Export and `advanced-report:explain`). Select stores sharing one base currency. Orders, units and customer reports are not affected.
+- **Attribution to the order date**: returns, shipped units, units to ship, shipments and credit memos are attributed to the original order date, not the credit memo or shipment date, so past periods change when refunds or shipments are created (R04, R05).
+- **Product types and dimensions**: bundle products are one line (R06); a multiselect attribute dimension is bucketed by its raw stored value (R07); `category_id` is a fan-out dimension, totals may not equal the sum of the rows (R01).
+- **Customers**: new vs returning counts a guest later registered, or a customer who changes email, twice (R08, R14, R28); accounts with `store_id` 0 or a deleted store are excluded when stores are filtered (R15); large lists are capped by `max_rows` (R16); an unmatched gender value is shown raw (R09).
+- **Inventory**: stock value uses the default-scope price and cost (R10); without MSI there is no `catalog_salable` dataset, reserved quantity or source dimension (R27); multi-stock salable quantities are covered only by unit tests, an accepted risk (R26).
+- **Compatibility**: `Magento_Reports` is a hard dependency (R11); Magento Open Source / Mage-OS only, Adobe Commerce `row_id` is unsupported (R12).
+- **Freshness and security**: results are cached with TTL-only freshness (R18, R21, R44); roles that only had a module dataset ACL need the matching core ACL after the upgrade (R29); no website-scoped admin roles (R30).
 - **Upgrade note**: the former "mixed base currencies" warning was removed; reports that used to show it are now rejected. Without MySQL timezone tables, results are exact but non-additive metrics are empty and non whole-hour timezones reach the row cap sooner.
 
 ## Documentation
@@ -539,6 +552,7 @@ The full list with severity and owner is in the [risk register](docs/risk-regist
 - [Security](docs/security.md): ACL model per entry point and dataset, data classification, cache and logging.
 - [Risk register](docs/risk-register.md): known risks with severity and owner sub-plan.
 - [Compatibility](docs/compatibility.md): supported Magento, PHP and database versions and the CI job enforcing each.
+- [Testing](docs/testing.md): local quality and integration commands, CI jobs and the database matrix.
 
 ## Roadmap
 

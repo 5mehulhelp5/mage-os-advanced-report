@@ -68,6 +68,11 @@ jobs:
       # stay unchanged). MySQL 8.0 is the 2.4.7-p10 entry's own image; 2.4.8/2.4.9 use MySQL 8.4.
       # The matrix drops its `magento` axis and lists everything under `include`: with the axis, include
       # entries sharing a `magento` value would overwrite each other's `services`.
+      #
+      # The 2.4.7 and MariaDB integration entries run on ubuntu-24.04 instead of ubuntu-latest (26.04):
+      # the 26.04 libxml2 rejects 2.4.7's Elasticsearch esconfig.xsd ("content model is not determinist"),
+      # and its MySQL 8.4 client makes mysqldump query information_schema.COLUMN_STATISTICS, which MariaDB
+      # lacks (the test framework adds --column-statistics=0 only for 8.0 clients).
       - id: final
         env:
           RESOLVED: ${{ steps.resolve.outputs.resolved }}
@@ -93,6 +98,11 @@ jobs:
                       | .options = "--health-cmd=\"healthcheck.sh --connect --innodb_initialized\" --health-interval=10s --health-timeout=5s --health-retries=10"
                     )
                 ])}
+              | .include |= map(
+                  if (.version | tostring | startswith("2.4.7"))
+                    or (.services.mysql.image // "" | startswith("mariadb"))
+                  then .os = "ubuntu-24.04" else . end
+                )
             )
           ' <<< "$RESOLVED")" >> "$GITHUB_OUTPUT"
 

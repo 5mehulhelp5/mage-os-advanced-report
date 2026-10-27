@@ -55,8 +55,9 @@ Notes:
 ## Integration test conventions
 
 - Method-level `#[Config]` and `#[DataFixture]` only (risk R25).
-- Magento 2.4.7 bundles PHPUnit 9, which ignores PHP attributes: integration tests that use
-  `#[DataProvider]` / `#[TestWith]` keep a matching `@dataProvider` doc-comment.
+- Integration tests that use `#[DataProvider]` / `#[TestWith]` keep a matching `@dataProvider` doc-comment
+  (PHPUnit 9, bundled with Magento 2.4.7, ignores PHP attributes). 2.4.7 is not in the integration matrix, so
+  this is not enforced by CI.
 - Tests whose behaviour depends on the database server (EXPLAIN output, the statement-timeout variable,
   timezone tables) branch or skip on `ServerFlavourDetector`; on the other flavour they are skipped, never
   failed.
@@ -70,13 +71,13 @@ Defined in `.github/workflows/ci.yml` (push and pull request on `master`/`main`,
 
 | Job | What it enforces |
 | --- | --- |
-| `compute-matrix` | Resolves the matrix. Drops Magento 2.4.7 from `unit-test-extension` only; appends the MariaDB entries to the integration matrix. |
+| `compute-matrix` | Resolves the matrix. Drops Magento 2.4.7 from `unit-test-extension` and `integration-test`; appends the MariaDB 11.4 entry to the integration matrix. |
 | `quality` (PHP 8.4, 8.5) | `composer test:cs-fixer`, `test:phpstan`, `test:rector`, `test:phpmd`, `test:unit` (PHPUnit 13), `test:xml`, then `npm run lint`. |
 | `compile-extension` | `setup:di:compile` in a Magento install for 2.4.7-p10, 2.4.8-p5 and 2.4.9. |
 | `unit-test-extension` | `Test/Unit` with the PHPUnit bundled in Magento 2.4.8-p5 and 2.4.9. 2.4.7-p10 is skipped: it bundles PHPUnit 9, which ignores the `#[DataProvider]` attributes `Test/Unit` relies on. The unit suite still runs on PHPUnit 13 in `quality`. |
-| `integration-test` | `Test/Integration` in a Magento install against the database service of each matrix entry (below). `fail-fast` is off. |
+| `integration-test` | `Test/Integration` in a Magento install against the database service of each matrix entry (below). `fail-fast` is off. 2.4.7-p10 is skipped: its test framework (`TestCaseProperties::endTestSuite`) sets every test property to null after each class, which fails on the non-nullable typed properties of `Test/Integration`. |
 
-2.4.7-p10 is in the matrix even though Composer blocks its `league/flysystem` 2.x (advisory
+2.4.7-p10 is in the `compile-extension` matrix even though Composer blocks its `league/flysystem` 2.x (advisory
 `PKSA-w9tt-7782-78jx`, risk R23): each job that builds a Magento install runs
 `composer config --json audit.ignore '["PKSA-w9tt-7782-78jx"]'` in the CI install only. Security blocking stays
 on and the module `composer.json` has no audit entries.
@@ -85,16 +86,15 @@ on and the module `composer.json` has no audit entries.
 
 | Magento | PHP | Database |
 | --- | --- | --- |
-| 2.4.7-p10 | 8.3 | `mysql:8.0` |
 | 2.4.8-p5 | 8.4 | `mysql:8.4` |
 | 2.4.9 | 8.5 | `mysql:8.4` |
-| 2.4.7-p10 | 8.3 | `mariadb:10.6` |
 | 2.4.9 | 8.5 | `mariadb:11.4` |
 
-The MySQL 8.0 job is the 2.4.7-p10 entry itself (no separate job). The MariaDB entries are copies of the
-resolved entry with only the `mysql` service image and health check replaced (`healthcheck.sh --connect
---innodb_initialized`); the service name and the `MYSQL_*` credentials stay unchanged so the install-config
-seds apply as is. Local runs cover MySQL 8.4 only; CI covers the rest.
+The MariaDB entry is a copy of the resolved 2.4.9 entry with only the `mysql` service image and health check
+replaced (`healthcheck.sh --connect --innodb_initialized`); the service name and the `MYSQL_*` credentials stay
+unchanged so the install-config seds apply as is. It runs on `ubuntu-24.04`: the `ubuntu-latest` (26.04) MySQL 8.4
+client makes `mysqldump` query `information_schema.COLUMN_STATISTICS`, which MariaDB lacks, and the Magento test
+framework adds `--column-statistics=0` only for 8.0 clients. Local runs cover MySQL 8.4 only; CI covers MariaDB.
 
 ## Benchmarks
 

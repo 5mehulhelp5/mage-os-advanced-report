@@ -57,38 +57,38 @@ jobs:
           kind: extension
           matrix: ${{ steps.matrix.outputs.matrix }}
 
-      # Magento 2.4.7 bundles PHPUnit 9.6, which ignores #[DataProvider] attributes. Test/Unit relies on
-      # them (Rector turns annotations into attributes), so 2.4.7 is dropped from unit-test-extension only.
-      # The unit suite runs on PHPUnit 13 in the quality job; compile-extension and integration-test keep
-      # 2.4.7 (Test/Integration carries @dataProvider doc-comments next to the attributes).
+      # Magento 2.4.7 is dropped from unit-test-extension and integration_test; compile-extension keeps it.
+      # - unit: 2.4.7 bundles PHPUnit 9.6, which ignores #[DataProvider] attributes. Test/Unit relies on them
+      #   (Rector turns annotations into attributes); the unit suite runs on PHPUnit 13 in the quality job.
+      # - integration: the 2.4.7 test framework (TestCaseProperties::endTestSuite) sets every test property
+      #   to null after each class, which fails on the non-nullable typed properties of Test/Integration.
       #
-      # integration_test also gets one MariaDB entry for 2.4.7 (MariaDB 10.6) and 2.4.9 (MariaDB 11.4), copied
-      # from the resolved entry with only services.mysql.image and its health check swapped (mariadb images
-      # have no mysqladmin; they accept the MYSQL_* env vars, so the service name and the install-config seds
-      # stay unchanged). MySQL 8.0 is the 2.4.7-p10 entry's own image; 2.4.8/2.4.9 use MySQL 8.4.
+      # integration_test also gets one MariaDB 11.4 entry for 2.4.9, copied from the resolved entry with only
+      # services.mysql.image and its health check swapped (mariadb images have no mysqladmin; they accept the
+      # MYSQL_* env vars, so the service name and the install-config seds stay unchanged).
       # The matrix drops its `magento` axis and lists everything under `include`: with the axis, include
       # entries sharing a `magento` value would overwrite each other's `services`.
       #
-      # The 2.4.7 and MariaDB integration entries run on ubuntu-24.04 instead of ubuntu-latest (26.04):
-      # the 26.04 libxml2 rejects 2.4.7's Elasticsearch esconfig.xsd ("content model is not determinist"),
-      # and its MySQL 8.4 client makes mysqldump query information_schema.COLUMN_STATISTICS, which MariaDB
-      # lacks (the test framework adds --column-statistics=0 only for 8.0 clients).
+      # The MariaDB entry runs on ubuntu-24.04 instead of ubuntu-latest (26.04): the 26.04 MySQL 8.4 client
+      # makes mysqldump query information_schema.COLUMN_STATISTICS, which MariaDB lacks (the test framework
+      # adds --column-statistics=0 only for 8.0 clients).
       - id: final
         env:
           RESOLVED: ${{ steps.resolve.outputs.resolved }}
         run: |
           echo "resolved=$(jq -c '
+            def drop247:
+              .include |= map(select((.version | tostring | startswith("2.4.7")) | not));
             (.["unit-test-extension"].matrix // empty) |= (
-              .include |= map(select((.version | tostring | startswith("2.4.7")) | not))
+              drop247
               | .include as $kept
               | .magento |= map(select(. as $m | any($kept[]; .magento == $m)))
             )
             | (.integration_test.matrix // empty) |= (
-              .include as $base
+              drop247
+              | .include as $base
               | def mariadb:
-                  if startswith("2.4.7") then "mariadb:10.6"
-                  elif startswith("2.4.9") then "mariadb:11.4"
-                  else empty end;
+                  if startswith("2.4.9") then "mariadb:11.4" else empty end;
                 {include: ($base + [
                   $base[]
                   | select(.services.mysql)
@@ -99,8 +99,7 @@ jobs:
                     )
                 ])}
               | .include |= map(
-                  if (.version | tostring | startswith("2.4.7"))
-                    or (.services.mysql.image // "" | startswith("mariadb"))
+                  if (.services.mysql.image // "" | startswith("mariadb"))
                   then .os = "ubuntu-24.04" else . end
                 )
             )

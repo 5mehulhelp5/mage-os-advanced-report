@@ -60,8 +60,8 @@ and in comparisons (they are never averages of averages).
 ## Requirements
 
 - Magento Open Source 2.4.7+ or Mage-OS, PHP 8.3+ (CI matrix and status: [compatibility](docs/compatibility.md)).
-- Database: MySQL 8.0 or 8.4, or MariaDB 10.6 or 11.4 (the combinations in the CI integration matrix; MySQL 8.0 and
-  MariaDB are pending their first CI run). The report guardrail uses `MAX_EXECUTION_TIME` on MySQL and
+- Database: MySQL 8.4 or MariaDB 11.4 (tested in the CI integration matrix); MySQL 8.0 and MariaDB 10.6 are
+  declared, not tested. The report guardrail uses `MAX_EXECUTION_TIME` on MySQL and
   `max_statement_time` on MariaDB.
 - The `advanced_report` cache type must be enabled for result caching (reports still work with it disabled, uncached).
 - `Magento_Reports` (hard dependency: the admin menu entry is a child of the Reports menu).

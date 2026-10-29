@@ -24,6 +24,12 @@ timezone, and applied to `created_at` as plain range conditions, so the index on
 | The last second of the last local day is included | `Time/TimezoneTest::testItIncludesTheLastSecondOfTheLastLocalDayInEuropeRome` |
 | Non whole-hour offsets (Asia/Kolkata +5:30, Asia/Kathmandu +5:45) | `Time/TimezoneTest::testItPlacesOrdersInLocalDaysForUtcAsiaKolkataStores`, `::testItPlacesOrdersInLocalDaysForUtcAsiaKathmanduStores` |
 
+### Carts
+
+For `carts` and `cart_items` the date range applies to the last activity (`quote.updated_at`) in the store timezone, with
+the same conversion as above. The abandoned and recent thresholds are not store local: they are computed in UTC from
+`ClockInterface::now()` minus the configured hours and compared with the UTC `updated_at`.
+
 ### Grouping
 
 Buckets (hour, day, week, month, quarter, year) are computed on the local time: `CONVERT_TZ(created_at, 'UTC', <tz>)`.

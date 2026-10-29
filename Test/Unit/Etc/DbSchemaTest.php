@@ -28,6 +28,7 @@ final class DbSchemaTest extends TestCase
         self::assertContains('mageos_advancedreport_saved', $tables);
         self::assertSame(['SALES_ORDER_CUSTOMER_ID_CREATED_AT', 'SALES_ORDER_CUSTOMER_EMAIL_CREATED_AT'], $indexes['sales_order']);
         self::assertSame(['SALES_ORDER_ITEM_PRODUCT_ID', 'SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID'], $indexes['sales_order_item']);
+        self::assertSame(['QUOTE_UPDATED_AT'], $indexes['quote']);
         foreach ($indexes as $table => $referenceIds) {
             foreach ($referenceIds as $referenceId) {
                 self::assertArrayHasKey($referenceId, $whitelist[$table]['index']);

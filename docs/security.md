@@ -28,8 +28,8 @@ isolation between roles and the request validation errors.
 
 A dataset is readable only when **both** gates pass (`Model/Security/DatasetAccess`):
 
-1. the module dataset ACL (`acl` attribute in `etc/report_datasets.xml`: `sales`, `catalog` or `customers`), and
-2. the core ACL of the entity the dataset reads, from the `coreResources` argument of `DatasetAccess` in `etc/di.xml`.
+1. the module dataset ACL (`acl` attribute in `etc/report_datasets.xml`: `sales`, `catalog`, `customers` or `carts`), and
+2. the core ACL of the entity the dataset reads (one resource, or a list that must all be granted), from the `coreResources` argument of `DatasetAccess` in `etc/di.xml`.
    The core gate is skipped when the resource is not declared in the ACL tree (for example a disabled module).
 
 | Dataset | Module ACL | Core ACL | Rationale |
@@ -40,6 +40,8 @@ A dataset is readable only when **both** gates pass (`Model/Security/DatasetAcce
 | `customers` | `MageOS_AdvancedReport::customers` | `Magento_Customer::manage` | Reads customer accounts (birth date, gender, email): needs the core customer permission |
 | `catalog_stock` | `MageOS_AdvancedReport::catalog` | `Magento_Catalog::products` | Same data as the product grid (stock, price, cost) |
 | `catalog_salable` | `MageOS_AdvancedReport::catalog` | `Magento_InventoryApi::stock` | MSI stock data; skipped without MSI |
+| `carts` | `MageOS_AdvancedReport::carts` | `Magento_Reports::abandoned` and `Magento_Sales::sales_order` (both required) | Abandoned cart report of core plus the order permission needed for the converted state |
+| `cart_items` | `MageOS_AdvancedReport::carts` | `Magento_Reports::abandoned` and `Magento_Sales::sales_order` (both required) | Same as `carts` |
 
 Consequences:
 
@@ -71,6 +73,8 @@ Consequences:
 | `customer_group_id` | `sales_orders`, `customer_orders`, `customers`, `sales_items` | Low (commercial segment) | B2B/B2C and pricing group analysis |
 | `coupon_code` (dimension), `has_coupon` (filter field) | `sales_orders` | Commercial (promotion code, may identify a campaign or partner) | Promotion effectiveness |
 | `payment_method` | `sales_orders` | Commercial | Payment mix |
+| `customer_email` (dimension; also in `abandoned_carts_list`) | `carts` | Personal data (identifying; guests included) | Contacting the owner of an abandoned cart |
+| `coupon_code` | `carts` | Commercial | Coupons left in carts |
 
 Order-level datasets (`sales_orders`, `customer_orders`, `sales_items`) follow `Magento_Sales::sales_order`, as the core
 order view does; `customers` requires `Magento_Customer::manage`. Exports go through the same checks and need `export` too.

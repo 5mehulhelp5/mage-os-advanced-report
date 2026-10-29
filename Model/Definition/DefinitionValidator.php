@@ -6,6 +6,7 @@ namespace MageOS\AdvancedReport\Model\Definition;
 
 use Magento\Framework\App\State;
 use Magento\Framework\Phrase;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ImplicitFilterPool;
 use MageOS\AdvancedReport\Model\Definition\Formula\Formula;
 use MageOS\AdvancedReport\Model\Definition\Formula\FormulaException;
 use Psr\Log\LoggerInterface;
@@ -116,6 +117,16 @@ class DefinitionValidator
                 'Dataset "%s" uses the "counted_status" implicit filter and must declare a "%s" field.',
                 $dataset->code,
                 Dataset::FIELD_STATUS
+            );
+        }
+
+        if (isset($dataset->implicitFilters[ImplicitFilterPool::NON_EMPTY_CART])
+            && !$dataset->hasField(ImplicitFilterPool::ITEMS_COUNT_FIELD)
+        ) {
+            $errors[] = \sprintf(
+                'Dataset "%s" uses the "non_empty_cart" implicit filter and must declare a "%s" field.',
+                $dataset->code,
+                ImplicitFilterPool::ITEMS_COUNT_FIELD
             );
         }
 

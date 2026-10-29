@@ -19,7 +19,7 @@ report category is. Costs and safeguards are in [performance](performance.md).
 | Locale | the admin locale |
 | ACL context | `AclContext::getFingerprint()`: users with different permissions never share an entry, see [security](security.md#cache) |
 | Scope fingerprint | the timezone(s) of the scope, the first day of week and the base currencies of the stores, so changing a store timezone, first day or base currency produces a new key |
-| Result config | `ResultConfigFingerprint`: report attributes (sorted), dead stock days, max rows, report connection name and `cataloginventory/item_options/min_qty` |
+| Result config | `ResultConfigFingerprint`: report attributes (sorted), dead stock days, max rows, report connection name, `cataloginventory/item_options/min_qty`, `carts/abandoned_after_hours` and `carts/recent_cart_hours` |
 
 The result-config component holds the settings that change the result itself. The query timeout and the two cache TTLs are
 left out on purpose: they change how a report runs or how long an entry lives, never its content, so changing them keeps the
@@ -38,6 +38,11 @@ Values are equal, types may differ; tests compare cached and fresh rows with `as
 | --- | --- | --- |
 | `mageos_advancedreport/performance/cache_ttl_open_period` | 300 s | the main or comparison range includes today |
 | `mageos_advancedreport/performance/cache_ttl_closed_period` | 86 400 s | every other result, **including reports without a date range** (stock datasets and presets have no range, so they use the closed TTL) |
+
+Exception: the cart datasets (`carts`, `cart_items`) always use the **open-period** TTL, whatever the date range. Their
+abandoned and recent thresholds move with the clock, so even a closed range changes (`ReportRunner` `timeRelativeDatasets`
+in `etc/di.xml`). The two cart settings (`carts/abandoned_after_hours`, `carts/recent_cart_hours`, the latter capped at 120)
+are part of the result-config key, so changing them gives new entries.
 
 ## Invalidation
 
@@ -97,6 +102,7 @@ hit returns the same warning (`FailureCachingTest::testItKeepsTheTruncationWarni
 | Sales and orders, period including today | up to the open TTL (5 min) | new orders appear after expiry or Refresh |
 | Sales and orders, closed period | up to the closed TTL (24 h) | refunds and shipments change past periods: returns, net sales and units to ship are attributed to the order date (R04, R05), so a closed period can change after it was cached |
 | Stock (physical, salable, dead stock, never sold, low stock coverage) | up to the closed TTL (24 h) | the underlying data is live; only the cache delays it. Stock presets with an order based part (30-day sales) are bounded by the same TTL |
+| Carts (abandoned, recent, converted) | up to the open TTL (5 min) | always the open-period TTL; a cart can become abandoned or converted after it was cached |
 | Customers (`days_since_last_order`) | up to 24 h | relative to today, so a cached closed period can be a day stale (R18) |
 
 Proof by integration test: `SalesInvalidationTest` (cancellation, refund and shipment keep the cached values until bypass; open

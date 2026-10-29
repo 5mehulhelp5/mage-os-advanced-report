@@ -8,6 +8,7 @@
                         <resource id="MageOS_AdvancedReport::sales" title="Sales" translate="title" sortOrder="10" />
                         <resource id="MageOS_AdvancedReport::catalog" title="Catalog" translate="title" sortOrder="20" />
                         <resource id="MageOS_AdvancedReport::customers" title="Customers" translate="title" sortOrder="25" />
+                        <resource id="MageOS_AdvancedReport::carts" title="Carts" translate="title" sortOrder="27" />
                         <resource id="MageOS_AdvancedReport::saved_manage" title="Manage Saved Reports" translate="title" sortOrder="30" />
                         <resource id="MageOS_AdvancedReport::saved_share" title="Share Saved Reports" translate="title" sortOrder="40" />
                         <resource id="MageOS_AdvancedReport::export" title="Export Reports" translate="title" sortOrder="50" />

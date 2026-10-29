@@ -15,7 +15,7 @@ final class PresetDescriptionsTest extends TestCase
 
         $presets = $xml->xpath('//preset');
         self::assertIsArray($presets);
-        self::assertCount(18, $presets);
+        self::assertCount(25, $presets);
         foreach ($presets as $preset) {
             self::assertNotSame('', trim((string) $preset['description']), (string) $preset['code']);
         }

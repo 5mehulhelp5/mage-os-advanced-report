@@ -36,6 +36,8 @@ class ResultConfigFingerprint
             'maxRows' => $this->config->getMaxRows(),
             'connectionName' => $this->config->getConnectionName(),
             'minQty' => (string) (float) $this->scopeConfig->getValue(self::XML_PATH_MIN_QTY),
+            'abandonedAfterHours' => $this->config->getAbandonedAfterHours(),
+            'recentCartHours' => $this->config->getRecentCartHours(),
         ];
     }
 }

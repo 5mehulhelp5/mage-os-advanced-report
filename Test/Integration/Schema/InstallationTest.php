@@ -84,7 +84,7 @@ final class InstallationTest extends TestCase
         $diff = $objectManager->get(SchemaDiff::class)
             ->diff($schemaConfig->getDeclarationConfig(), $schemaConfig->getDbConfig());
 
-        $moduleTables = array_diff(array_keys($this->declaredTables()), ['sales_order', 'sales_order_item']);
+        $moduleTables = array_diff(array_keys($this->declaredTables()), ['sales_order', 'sales_order_item', 'quote']);
         $moduleIndexes = array_merge(...array_values(array_map('array_keys', $this->declaredIndexes())));
         $moduleChanges = [];
         foreach ($diff->getAll() ?? [] as $operations) {

@@ -110,6 +110,56 @@ final class ConfigTest extends TestCase
         ];
     }
 
+    public function testItReturnsTheConfiguredAbandonedAfterHours(): void
+    {
+        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn('48');
+
+        self::assertSame(48, (new Config($scopeConfig))->getAbandonedAfterHours());
+    }
+
+    #[DataProvider('invalidHoursProvider')]
+    public function testItFallsBackTo24AbandonedAfterHoursWhenTheValueIsEmptyOrNotPositive(mixed $value): void
+    {
+        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn($value);
+
+        self::assertSame(24, (new Config($scopeConfig))->getAbandonedAfterHours());
+    }
+
+    public function testItReturnsTheConfiguredRecentCartHours(): void
+    {
+        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn('72');
+
+        self::assertSame(72, (new Config($scopeConfig))->getRecentCartHours());
+    }
+
+    #[DataProvider('invalidHoursProvider')]
+    public function testItFallsBackTo24RecentCartHoursWhenTheValueIsEmptyOrNotPositive(mixed $value): void
+    {
+        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn($value);
+
+        self::assertSame(24, (new Config($scopeConfig))->getRecentCartHours());
+    }
+
+    public function testItCapsRecentCartHoursAt120(): void
+    {
+        $scopeConfig = $this->createStub(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturn('168');
+
+        self::assertSame(120, (new Config($scopeConfig))->getRecentCartHours());
+    }
+
+    /**
+     * @return array<string,array{mixed}>
+     */
+    public static function invalidHoursProvider(): array
+    {
+        return ['empty' => [''], 'null' => [null], 'zero' => ['0'], 'negative' => ['-5'], 'text' => ['abc']];
+    }
+
     public function testItReturnsTheConfiguredConnectionNameDefaultingToDefault(): void
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);

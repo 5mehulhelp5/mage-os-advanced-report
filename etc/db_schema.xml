@@ -41,4 +41,9 @@
             <column name="order_id"/>
         </index>
     </table>
+    <table name="quote" resource="checkout">
+        <index referenceId="QUOTE_UPDATED_AT" indexType="btree">
+            <column name="updated_at"/>
+        </index>
+    </table>
 </schema>

@@ -33,6 +33,7 @@ final class IndexUsageTest extends TestCase
     /** Indexes added by the module in `etc/db_schema.xml`, with the preset whose statement serves them. */
     private const array NEW_INDEXES = [
         'SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID' => 'dead_stock',
+        'QUOTE_UPDATED_AT' => 'abandoned_carts_trend',
     ];
 
     public function testItListsTheFirstOrderIndexAmongThePossibleKeysOfTheNewCustomerLookup(): void
@@ -76,12 +77,27 @@ final class IndexUsageTest extends TestCase
         }
     }
 
+    public function testItOffersQuoteUpdatedAtForTheCartsDatasetDateRangeStatement(): void
+    {
+        $this->assertContains('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_carts')));
+    }
+
+    public function testItOffersQuoteUpdatedAtForTheCartItemsDatasetDateRangeStatement(): void
+    {
+        $this->assertContains('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_cart_items')));
+    }
+
+    public function testItOffersSalesOrderQuoteIdForTheConvertedCartSubSelect(): void
+    {
+        $this->assertContains('SALES_ORDER_QUOTE_ID', $this->possibleKeys($this->presetSelect('abandoned_carts_trend')));
+    }
+
     public function testItDocumentsARationaleForEveryModuleIndexAndTheRemovableIndexes(): void
     {
         $documentation = (string) file_get_contents(self::MODULE_ROOT . '/docs/indexes.md');
         $schema = simplexml_load_string((string) file_get_contents(self::MODULE_ROOT . '/etc/db_schema.xml'));
 
-        foreach ($schema->xpath('//table[@resource="sales"]/index') as $index) {
+        foreach ($schema->xpath('//table[@resource="sales" or @resource="checkout"]/index') as $index) {
             $this->assertStringContainsString((string) $index['referenceId'], $documentation);
         }
         $this->assertStringContainsString('## Removable', $documentation);

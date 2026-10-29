@@ -16,6 +16,8 @@ class Config
     private const string XML_PATH_SALES_COUNTED_STATUSES = 'mageos_advancedreport/sales/counted_statuses';
     private const string XML_PATH_CATALOG_REPORT_ATTRIBUTES = 'mageos_advancedreport/catalog/report_attributes';
     private const string XML_PATH_CATALOG_DEAD_STOCK_DAYS = 'mageos_advancedreport/catalog/dead_stock_days';
+    private const string XML_PATH_CARTS_ABANDONED_AFTER_HOURS = 'mageos_advancedreport/carts/abandoned_after_hours';
+    private const string XML_PATH_CARTS_RECENT_CART_HOURS = 'mageos_advancedreport/carts/recent_cart_hours';
     private const string XML_PATH_PERFORMANCE_CONNECTION_NAME = 'mageos_advancedreport/performance/connection_name';
     private const string XML_PATH_PERFORMANCE_MAX_ROWS = 'mageos_advancedreport/performance/max_rows';
     private const string XML_PATH_PERFORMANCE_QUERY_TIMEOUT_MS = 'mageos_advancedreport/performance/query_timeout_ms';
@@ -26,6 +28,9 @@ class Config
     private const string XML_PATH_GENERAL_LOCALE_FIRSTDAY = 'general/locale/firstday';
 
     private const int DEFAULT_DEAD_STOCK_DAYS = 90;
+    private const int DEFAULT_ABANDONED_AFTER_HOURS = 24;
+    private const int DEFAULT_RECENT_CART_HOURS = 24;
+    private const int MAX_RECENT_CART_HOURS = 120;
     private const string DEFAULT_CONNECTION_NAME = 'default';
     private const int DEFAULT_MAX_ROWS = 10000;
     private const int DEFAULT_QUERY_TIMEOUT_MS = 30000;
@@ -75,6 +80,25 @@ class Config
     public function getDeadStockDays(): int
     {
         return $this->getPositiveInt(self::XML_PATH_CATALOG_DEAD_STOCK_DAYS, self::DEFAULT_DEAD_STOCK_DAYS);
+    }
+
+    /**
+     * Hours without activity after which an active cart with items and an email is abandoned.
+     */
+    public function getAbandonedAfterHours(): int
+    {
+        return $this->getPositiveInt(self::XML_PATH_CARTS_ABANDONED_AFTER_HOURS, self::DEFAULT_ABANDONED_AFTER_HOURS);
+    }
+
+    /**
+     * Hours within which an active cart update makes the cart "recent" (capped at 120).
+     */
+    public function getRecentCartHours(): int
+    {
+        return min(
+            self::MAX_RECENT_CART_HOURS,
+            $this->getPositiveInt(self::XML_PATH_CARTS_RECENT_CART_HOURS, self::DEFAULT_RECENT_CART_HOURS),
+        );
     }
 
     /**

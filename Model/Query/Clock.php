@@ -24,4 +24,9 @@ class Clock implements ClockInterface
 
         return new DateTimeImmutable($local->format('Y-m-d'));
     }
+
+    public function now(): DateTimeImmutable
+    {
+        return (new DateTimeImmutable('@' . $this->dateTime->gmtTimestamp()))->setTimezone(new DateTimeZone('UTC'));
+    }
 }

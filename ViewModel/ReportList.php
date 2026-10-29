@@ -21,6 +21,7 @@ class ReportList implements ArgumentInterface
         'sales' => 'Sales',
         'catalog' => 'Catalog',
         'customers' => 'Customers',
+        'carts' => 'Carts',
     ];
     private const array AREA_DESCRIPTIONS = [
         'sales' => 'Ready-made sales reports: revenue, orders and customer behaviour across channels, '
@@ -28,6 +29,8 @@ class ReportList implements ArgumentInterface
         'catalog' => 'Ready-made catalog reports: product sales, categories and stock health of your catalog.',
         'customers' => 'Ready-made customer reports: spending, order frequency, delivery times and new '
             . 'registrations.',
+        'carts' => 'Ready-made cart reports: recent and abandoned carts, products left in carts and cart '
+            . 'conversion.',
     ];
 
     /**

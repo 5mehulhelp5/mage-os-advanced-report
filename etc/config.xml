@@ -12,6 +12,10 @@
                 <dead_stock_days>90</dead_stock_days>
                 <report_attributes/>
             </catalog>
+            <carts>
+                <abandoned_after_hours>24</abandoned_after_hours>
+                <recent_cart_hours>24</recent_cart_hours>
+            </carts>
             <performance>
                 <connection_name>default</connection_name>
                 <max_rows>10000</max_rows>

@@ -20,6 +20,7 @@ final class DatasetAccessTest extends TestCase
         ['id' => 'Magento_Backend::admin', 'children' => [
             ['id' => 'Magento_Sales::sales_order', 'children' => []],
             ['id' => 'Magento_Customer::manage', 'children' => []],
+            ['id' => 'Magento_Reports::abandoned', 'children' => []],
         ]],
     ];
 
@@ -90,6 +91,49 @@ final class DatasetAccessTest extends TestCase
         );
     }
 
+    public function testItAcceptsAListOfCoreResourcesForADatasetAndRequiresAllOfThem(): void
+    {
+        $core = ['sales_orders' => ['Magento_Reports::abandoned', 'Magento_Sales::sales_order']];
+        $dataset = $this->dataset('sales_orders');
+
+        self::assertSame(
+            ['Magento_Reports::abandoned', 'Magento_Sales::sales_order'],
+            $this->access([], $core)->getCoreResources('sales_orders')
+        );
+        self::assertTrue($this->access(
+            ['MageOS_AdvancedReport::orders', 'Magento_Reports::abandoned', 'Magento_Sales::sales_order'],
+            $core
+        )->isAllowed($dataset));
+        self::assertFalse($this->access(
+            ['MageOS_AdvancedReport::orders', 'Magento_Reports::abandoned'],
+            $core
+        )->isAllowed($dataset));
+        self::assertFalse($this->access(
+            ['MageOS_AdvancedReport::orders', 'Magento_Sales::sales_order'],
+            $core
+        )->isAllowed($dataset));
+    }
+
+    public function testItKeepsAcceptingASingleCoreResourceStringForADataset(): void
+    {
+        $access = $this->access(['MageOS_AdvancedReport::orders']);
+
+        self::assertSame(['Magento_Sales::sales_order'], $access->getCoreResources('sales_orders'));
+        self::assertSame('Magento_Sales::sales_order', $access->getCoreResource('sales_orders'));
+    }
+
+    public function testItListsEveryDeclaredCoreResourceOfADatasetInTheResourcesList(): void
+    {
+        $access = $this->access([], [
+            'carts' => ['Magento_Reports::abandoned', 'Magento_Sales::sales_order', 'Magento_Missing::x'],
+        ]);
+
+        self::assertSame(
+            ['Magento_Reports::abandoned', 'Magento_Sales::sales_order'],
+            $access->getResources()
+        );
+    }
+
     public function testItReadsTheAclResourceTreeOnlyOnce(): void
     {
         $provider = $this->createMock(ProviderInterface::class);
@@ -108,7 +152,7 @@ final class DatasetAccessTest extends TestCase
 
     /**
      * @param string[] $granted
-     * @param array<string,string>|null $core
+     * @param array<string,string|string[]>|null $core
      */
     private function access(array $granted, ?array $core = null, ?DefinitionRegistry $registry = null): DatasetAccess
     {

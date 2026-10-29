@@ -7,8 +7,10 @@ namespace MageOS\AdvancedReport\Test\Unit\Etc;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
+use MageOS\AdvancedReport\Model\Label\CartStateLabelResolver;
 use MageOS\AdvancedReport\Model\Label\CustomerLabelResolver;
 use MageOS\AdvancedReport\Model\Label\GenderLabelResolver;
+use MageOS\AdvancedReport\Model\Label\GuestLabelResolver;
 use MageOS\AdvancedReport\Model\Label\MonthLabelResolver;
 use MageOS\AdvancedReport\Test\Unit\Helper\XPathTestTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -27,6 +29,8 @@ final class LabelResolverDiXmlTest extends TestCase
             'customer' => [CustomerLabelResolver::class],
             'month' => [MonthLabelResolver::class],
             'gender' => [GenderLabelResolver::class],
+            'cart state' => [CartStateLabelResolver::class],
+            'guest' => [GuestLabelResolver::class],
         ];
     }
 

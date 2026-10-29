@@ -97,7 +97,7 @@ class DefinitionRegistry
     }
 
     /**
-     * Declared presets, keyed by code, optionally filtered by area (sales|catalog|customers).
+     * Declared presets, keyed by code, optionally filtered by area (sales|catalog|customers|carts).
      *
      * @param string|null $area
      * @return array<string,Preset>

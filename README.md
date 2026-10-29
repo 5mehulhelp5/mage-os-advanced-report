@@ -96,6 +96,8 @@ Stores > Configuration > Advanced Report > Configuration (default scope only).
 | `mageos_advancedreport/sales/counted_statuses` | empty | Order statuses counted as sales. Empty means every status except `canceled`. |
 | `mageos_advancedreport/catalog/dead_stock_days` | `90` | Days without sales after which in-stock products are flagged as dead stock. |
 | `mageos_advancedreport/catalog/report_attributes` | empty | Extra product attributes exposed as `attr_<code>` dimensions of the `sales_items` dataset. |
+| `mageos_advancedreport/carts/abandoned_after_hours` | `24` | Hours without activity after which an active cart with items and an email is abandoned. |
+| `mageos_advancedreport/carts/recent_cart_hours` | `24` | Window of the recent cart presets, 1 to 120 hours (the presets use `last_7_days`, so a longer window would be cut off). |
 | `mageos_advancedreport/performance/connection_name` | `default` | Database connection (from `app/etc/env.php`) used to run report queries, e.g. a read replica. |
 | `mageos_advancedreport/performance/max_rows` | `10000` | Hard cap on the rows a single query may return; results above the cap are truncated with a warning. |
 | `mageos_advancedreport/performance/query_timeout_ms` | `30000` | Maximum execution time of a report query. |
@@ -208,6 +210,27 @@ MSI only: the dataset (and any preset on it) is dropped from the registry when `
 | `reserved_qty` | Reserved quantity | `SUM(reserved_qty)` | Quantity reserved by pending orders (positive when reserved). |
 | `salable_qty` | Salable quantity | `SUM(salable_qty)` | Stock quantity minus reserved quantity minus the minimum quantity, or 0 when the stock index marks the SKU not salable; can be negative like in core. "Available" means salable in this module. |
 | `skus_salable` | SKUs salable | `COUNT DISTINCT(product_id)` where `salable_qty > 0` | Number of distinct SKUs with a salable quantity greater than zero. |
+
+### `carts` (Carts) and `cart_items` (Cart items)
+
+Area `carts`. Datasets on `quote` and `quote_item`; both are dated by the cart's last activity (`quote.updated_at`, store
+timezone). Only carts that have items are read (implicit `non_empty_cart` filter). Full semantics in
+[metric definitions](docs/metric-definitions.md#carts-and-cart_items-carts).
+
+Presets: `recent_carts`, `recent_cart_items`, `abandoned_carts_trend`, `abandoned_carts_list`, `top_abandoned_products`,
+`products_added_to_cart`, `cart_conversion`.
+
+| Dataset | Metrics |
+|---|---|
+| `carts` | `carts`, `cart_value`, `avg_cart_value`, `items_in_carts`, `abandoned_carts`, `abandoned_value`, `recent_carts`, `converted_carts`, `converted_value`, `abandonment_rate`, `conversion_rate` |
+| `cart_items` | `units_in_carts`, `cart_items_value`, `carts`, `abandoned_units`, `abandoned_items_value`, `abandoned_carts`, `converted_units`, `item_conversion_rate` |
+
+- Abandoned: active cart, with items, non-empty customer email (guests included), idle longer than
+  `carts/abandoned_after_hours`. Recent: active cart with items updated within `carts/recent_cart_hours`.
+  Converted: any order references the cart through `sales_order.quote_id`, whatever its status.
+- Both settings are part of the cache key. Cart datasets always use the open-period cache TTL because "now" moves the
+  abandoned and recent thresholds.
+- Customer emails are exposed (`customer_email` dimension, `abandoned_carts_list`): personal data.
 
 ### Customer dimensions
 
@@ -518,13 +541,14 @@ In short:
 
 ## Security and permissions
 
-Access is enforced server-side: a dataset needs its module ACL (`sales`, `catalog`, `customers`) **and** the core ACL of
+Access is enforced server-side: a dataset needs its module ACL (`sales`, `catalog`, `customers`, `carts`) **and** the core ACL of
 its entity. Full functionality needs these core resources:
 
 - `Magento_Sales::sales_order` (`sales_orders`, `customer_orders`, `sales_items`)
 - `Magento_Customer::manage` (`customers`)
 - `Magento_Catalog::products` (`catalog_stock`)
 - `Magento_InventoryApi::stock` (`catalog_salable`, MSI only)
+- `Magento_Reports::abandoned` **and** `Magento_Sales::sales_order` (`carts`, `cart_items`; module ACL `MageOS_AdvancedReport::carts`). The cart datasets list customer emails.
 
 Details, the entry-point inventory and the data classification are in [docs/security.md](docs/security.md).
 

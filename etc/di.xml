@@ -59,6 +59,26 @@
             <argument name="cache" xsi:type="object">MageOS\AdvancedReport\Model\Cache\Type</argument>
         </arguments>
     </type>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsConvertedExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartConvertedExpression">
+        <arguments>
+            <argument name="alias" xsi:type="string">quote</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsAbandonedExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartAbandonedExpression">
+        <arguments>
+            <argument name="alias" xsi:type="string">quote</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsRecentExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartRecentExpression">
+        <arguments>
+            <argument name="alias" xsi:type="string">quote</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsStateExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartStateExpression">
+        <arguments>
+            <argument name="alias" xsi:type="string">quote</argument>
+        </arguments>
+    </virtualType>
     <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\SalesDocumentCountExpression">
         <arguments>
             <argument name="documentTable" xsi:type="string">sales_shipment</argument>
@@ -82,6 +102,14 @@
                 <item name="shipment_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression</item>
                 <item name="credit_memo_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CreditMemoCountExpression</item>
                 <item name="first_shipment_wait" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstShipmentWaitExpression</item>
+                <item name="cart_converted" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartConvertedExpression</item>
+                <item name="cart_items_converted" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsConvertedExpression</item>
+                <item name="cart_abandoned" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartAbandonedExpression</item>
+                <item name="cart_items_abandoned" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsAbandonedExpression</item>
+                <item name="cart_recent" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartRecentExpression</item>
+                <item name="cart_items_recent" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsRecentExpression</item>
+                <item name="cart_state" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartStateExpression</item>
+                <item name="cart_items_state" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsStateExpression</item>
             </argument>
         </arguments>
     </type>
@@ -161,6 +189,14 @@
             </argument>
         </arguments>
     </type>
+    <type name="MageOS\AdvancedReport\Model\Query\ReportRunner">
+        <arguments>
+            <argument name="timeRelativeDatasets" xsi:type="array">
+                <item name="carts" xsi:type="string">carts</item>
+                <item name="cart_items" xsi:type="string">cart_items</item>
+            </argument>
+        </arguments>
+    </type>
     <type name="MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery">
         <arguments>
             <argument name="reportRunner" xsi:type="object">MageOS\AdvancedReport\Api\ReportRunnerInterface\Proxy</argument>
@@ -185,6 +221,8 @@
                 <item name="MageOS\AdvancedReport\Model\Label\CustomerLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CustomerLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\MonthLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\MonthLabelResolver</item>
                 <item name="MageOS\AdvancedReport\Model\Label\GenderLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\GenderLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\CartStateLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\CartStateLabelResolver</item>
+                <item name="MageOS\AdvancedReport\Model\Label\GuestLabelResolver" xsi:type="object">MageOS\AdvancedReport\Model\Label\GuestLabelResolver</item>
             </argument>
         </arguments>
     </type>
@@ -304,6 +342,14 @@
                 <item name="customers" xsi:type="string">Magento_Customer::manage</item>
                 <item name="catalog_stock" xsi:type="string">Magento_Catalog::products</item>
                 <item name="catalog_salable" xsi:type="string">Magento_InventoryApi::stock</item>
+                <item name="carts" xsi:type="array">
+                    <item name="abandoned" xsi:type="string">Magento_Reports::abandoned</item>
+                    <item name="sales_order" xsi:type="string">Magento_Sales::sales_order</item>
+                </item>
+                <item name="cart_items" xsi:type="array">
+                    <item name="abandoned" xsi:type="string">Magento_Reports::abandoned</item>
+                    <item name="sales_order" xsi:type="string">Magento_Sales::sales_order</item>
+                </item>
             </argument>
         </arguments>
     </type>

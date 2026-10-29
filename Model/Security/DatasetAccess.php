@@ -26,7 +26,7 @@ class DatasetAccess
      * @param AuthorizationInterface $authorization
      * @param ProviderInterface $aclResourceProvider
      * @param DefinitionRegistry $definitionRegistry
-     * @param array<string,string> $coreResources dataset code => core ACL id
+     * @param array<string,string|string[]> $coreResources dataset code => core ACL id or list of ids (all required)
      */
     public function __construct(
         private readonly AuthorizationInterface $authorization,
@@ -37,15 +37,27 @@ class DatasetAccess
     }
 
     /**
-     * Core ACL resource gating the dataset, or null when unmapped or not declared.
+     * First core ACL resource gating the dataset, or null when unmapped or not declared.
      *
      * @param string $datasetCode
      */
     public function getCoreResource(string $datasetCode): ?string
     {
-        $resource = $this->coreResources[$datasetCode] ?? null;
+        return $this->getCoreResources($datasetCode)[0] ?? null;
+    }
 
-        return $resource !== null && isset($this->getDeclaredIds()[$resource]) ? $resource : null;
+    /**
+     * Declared core ACL resources gating the dataset; every one is required.
+     *
+     * @param string $datasetCode
+     * @return string[]
+     */
+    public function getCoreResources(string $datasetCode): array
+    {
+        $declared = $this->getDeclaredIds();
+        $resources = array_map(strval(...), (array) ($this->coreResources[$datasetCode] ?? []));
+
+        return array_values(array_filter($resources, static fn (string $id): bool => isset($declared[$id])));
     }
 
     /**
@@ -86,8 +98,7 @@ class DatasetAccess
             $resources[$dataset->aclResource] = true;
         }
         foreach (array_keys($this->coreResources) as $code) {
-            $core = $this->getCoreResource((string) $code);
-            if ($core !== null) {
+            foreach ($this->getCoreResources((string) $code) as $core) {
                 $resources[$core] = true;
             }
         }
@@ -99,9 +110,9 @@ class DatasetAccess
 
     private function firstDenied(Dataset $dataset): ?string
     {
-        $candidates = [$dataset->aclResource, $this->getCoreResource($dataset->code)];
+        $candidates = [$dataset->aclResource, ...$this->getCoreResources($dataset->code)];
         foreach ($candidates as $resource) {
-            if ($resource !== null && !$this->authorization->isAllowed($resource)) {
+            if (!$this->authorization->isAllowed($resource)) {
                 return $resource;
             }
         }

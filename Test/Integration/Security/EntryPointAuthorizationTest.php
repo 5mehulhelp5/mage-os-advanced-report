@@ -270,6 +270,53 @@ final class EntryPointAuthorizationTest extends AbstractBackendController
         }
     }
 
+    #[DataFixture(Role::class, ['role_name' => 'ar_ep_cart_no_%uniqid%', 'resources' => self::CARTS_NO_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_ep_cart_ok_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesExportingCartDataWithoutCartPermissions(): void
+    {
+        $this->loginAs('user2');
+        $objectManager = Bootstrap::getObjectManager();
+        $path = $objectManager->get(CsvExporter::class)->exportToFile(
+            $objectManager->get(ReportRequestFactory::class)->fromArray(
+                json_decode($this->cartsRequest(), true)
+            ),
+            false
+        );
+        $varDirectory = $objectManager->get(Filesystem::class)->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $csv = $varDirectory->readFile($path);
+        $varDirectory->delete($path);
+        $this->assertNotSame('', $csv, 'Positive control: the role may export the carts dataset');
+
+        $this->resetDispatch();
+        $this->loginAs('user');
+        $this->post(self::EXPORT_URI, ['request' => $this->cartsRequest()]);
+
+        $this->assertTrue($this->response()->isRedirect());
+        $this->assertFalse($this->response()->getHeader('Content-Disposition'));
+        $this->assertStringContainsString('The report could not be exported.', $this->messagesAsText());
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_ep_cart_tab_no_%uniqid%', 'resources' => self::CARTS_NO_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_ep_cart_tab_ok_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItHidesTheCartsTabFromAdminsWithoutCartPermissions(): void
+    {
+        $objectManager = Bootstrap::getObjectManager();
+
+        $this->loginAs('user2');
+        $this->assertArrayHasKey(
+            'carts',
+            $objectManager->create(ReportList::class)->getAreas(),
+            'Positive control'
+        );
+
+        $this->loginAs('user');
+        $this->assertArrayNotHasKey('carts', $objectManager->create(ReportList::class)->getAreas());
+    }
+
     private const array BASE = [
         'Magento_Backend::admin',
         'Magento_Reports::report',
@@ -284,6 +331,18 @@ final class EntryPointAuthorizationTest extends AbstractBackendController
         'MageOS_AdvancedReport::saved_share',
     ];
     private const array WITH_CORE = [...self::NO_CORE, 'Magento_Sales::sales_order'];
+    private const array CARTS_FULL = [
+        ...self::BASE,
+        'MageOS_AdvancedReport::carts',
+        'MageOS_AdvancedReport::export',
+        'Magento_Reports::abandoned',
+        'Magento_Sales::sales_order',
+    ];
+    private const array CARTS_NO_CORE = [
+        ...self::BASE,
+        'MageOS_AdvancedReport::carts',
+        'MageOS_AdvancedReport::export',
+    ];
     private const array NO_EXPORT = [
         ...self::BASE,
         'MageOS_AdvancedReport::sales',
@@ -365,6 +424,19 @@ final class EntryPointAuthorizationTest extends AbstractBackendController
         return (string) json_encode([
             'dataset' => 'sales_orders',
             'metrics' => ['orders'],
+            'dimensions' => [],
+            'filters' => [],
+            'dateRange' => ['type' => 'custom', 'from' => '2026-01-01', 'to' => '2026-01-31'],
+            'storeIds' => [],
+            'bypassCache' => true,
+        ]);
+    }
+
+    private function cartsRequest(): string
+    {
+        return (string) json_encode([
+            'dataset' => 'carts',
+            'metrics' => ['carts'],
             'dimensions' => [],
             'filters' => [],
             'dateRange' => ['type' => 'custom', 'from' => '2026-01-01', 'to' => '2026-01-31'],

@@ -348,6 +348,24 @@ final class DefinitionValidatorTest extends TestCase
                 ),
                 '/uses the "counted_status" implicit filter and must declare a "status" field/',
             ],
+            'non_empty_cart without items_count field' => [
+                new Dataset(
+                    code: 'carts',
+                    label: 'Carts',
+                    aclResource: 'MageOS_AdvancedReport::sales',
+                    area: 'sales',
+                    dateless: true,
+                    baseTable: 'quote',
+                    baseAlias: 'main',
+                    baseProvider: null,
+                    implicitFilters: ['non_empty_cart' => 'non_empty_cart'],
+                    fields: [],
+                    joins: [],
+                    metrics: [],
+                    dimensions: [],
+                ),
+                '/uses the "non_empty_cart" implicit filter and must declare a "items_count" field/',
+            ],
         ];
     }
 

@@ -50,10 +50,19 @@ Indexes are declared in `etc/db_schema.xml` on core tables (`sales_order`, `sale
 - Rationale: shared reports are looked up independently of the owner.
 - Write overhead: negligible.
 
+### QUOTE_UPDATED_AT
+
+- Table / columns: `quote (updated_at)`
+- Serves: the `carts` and `cart_items` datasets when the date range is applied to `quote.updated_at` without a store filter.
+- Rationale: core only indexes `(store_id, updated_at)`, which cannot serve a range on `updated_at` alone.
+- Write overhead: one extra entry per quote insert and per `updated_at` change; quotes are update-heavy (every cart change touches the row).
+
 ## Native indexes relied on
 
 - `sales_order.created_at`, `(store_id, state, created_at)`, `store_id`, `status`, `customer_id`: date scope and store/status filters of every sales preset.
 - `sales_order_item.order_id`: order to item joins.
+- `quote_item.quote_id` (`QUOTE_ITEM_QUOTE_ID`): quote to item joins of `cart_items`.
+- `sales_order.quote_id` (`SALES_ORDER_QUOTE_ID`): the converted cart sub select.
 - `sales_order_payment.parent_id`, `sales_order_address.parent_id`, `sales_creditmemo.order_id`, `sales_shipment.order_id`: payment, address, refund and shipment joins.
 - EAV value tables: unique key `(entity_id, attribute_id, store_id)` serves the attribute joins of `ReportAttribute` fields.
 - `catalog_category_product.product_id` and `inventory_source_item (source_code, sku)` unique key: category and source joins.

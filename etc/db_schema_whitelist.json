@@ -32,5 +32,10 @@
             "SALES_ORDER_ITEM_PRODUCT_ID": true,
             "SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID": true
         }
+    },
+    "quote": {
+        "index": {
+            "QUOTE_UPDATED_AT": true
+        }
     }
 }

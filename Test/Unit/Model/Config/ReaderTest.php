@@ -130,6 +130,16 @@ final class ReaderTest extends TestCase
         self::assertSame('customers', $result['presets']['customer_spending']['area']);
     }
 
+    public function testItAcceptsADatasetDeclaredWithAreaCartsInTheDatasetsSchema(): void
+    {
+        $this->fileResolver->method('get')->willReturn([$this->fixture('carts_area.xml')]);
+
+        $result = $this->reader()->read();
+
+        self::assertSame('carts', $result['datasets']['quote_carts']['area']);
+        self::assertSame('carts', $result['presets']['recent_carts']['area']);
+    }
+
     public function testItStillRejectsAnUnknownArea(): void
     {
         $this->fileResolver->method('get')->willReturn([$this->fixture('unknown_area.xml')]);

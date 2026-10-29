@@ -17,6 +17,7 @@ use MageOS\AdvancedReport\Model\Cache\Type as CacheType;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
+use MageOS\AdvancedReport\Model\Security\AclContext;
 use MageOS\AdvancedReport\Test\Integration\Helper\ReportTestRunner;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -51,6 +52,15 @@ final class RunnerAuthorizationTest extends TestCase
         'Magento_Catalog::products',
         'Magento_InventoryApi::stock',
     ];
+    private const array CARTS_MODULE = [...self::BASE, 'MageOS_AdvancedReport::carts'];
+    private const array CARTS_FULL = [
+        ...self::CARTS_MODULE,
+        'Magento_Reports::abandoned',
+        'Magento_Sales::sales_order',
+    ];
+    private const array CARTS_NO_SALES = [...self::CARTS_MODULE, 'Magento_Reports::abandoned'];
+    private const array CARTS_NO_ABANDONED = [...self::CARTS_MODULE, 'Magento_Sales::sales_order'];
+    private const array CARTS_NO_MODULE = [...self::BASE, 'Magento_Reports::abandoned', 'Magento_Sales::sales_order'];
     private const array CACHE_ALLOWED = [...self::SALES_CORE, 'Magento_Customer::manage'];
 
     private ReportTestRunner $runner;
@@ -283,6 +293,65 @@ final class RunnerAuthorizationTest extends TestCase
         }
 
         $this->assertSame(array_keys($invalid), $rejected);
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cs1_%uniqid%', 'resources' => self::CARTS_NO_SALES], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cs2_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesRunningACartPresetWithoutTheMagentoSalesSalesOrderResource(): void
+    {
+        $this->assertCartPresetDeniedWithoutPermissions();
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cm1_%uniqid%', 'resources' => self::CARTS_NO_MODULE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cm2_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesRunningACartPresetWithoutTheMageOSAdvancedReportCartsResource(): void
+    {
+        $this->assertCartPresetDeniedWithoutPermissions();
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ca1_%uniqid%', 'resources' => self::CARTS_NO_ABANDONED], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ca2_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesRunningACartPresetWithoutTheMagentoReportsAbandonedResource(): void
+    {
+        $this->assertCartPresetDeniedWithoutPermissions();
+    }
+
+    #[Cache('advanced_report', true)]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cc1_%uniqid%', 'resources' => self::CARTS_FULL], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cc2_%uniqid%', 'resources' => self::CARTS_FULL], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_cc3_%uniqid%', 'resources' => self::CARTS_NO_SALES], 'role3')]
+    #[DataFixture(User::class, ['role_id' => '$role3.id$'], 'user3')]
+    public function testItGivesAdminsWithDifferentCartPermissionsDifferentCacheEntries(): void
+    {
+        $fingerprints = [];
+        foreach (['user', 'user2', 'user3'] as $alias) {
+            $this->runner->loginAs($this->userName($alias));
+            $fingerprints[$alias] = Bootstrap::getObjectManager()->create(AclContext::class)->getFingerprint();
+        }
+
+        $this->assertSame($fingerprints['user'], $fingerprints['user2'], 'Identical cart permissions');
+        $this->assertNotSame($fingerprints['user'], $fingerprints['user3'], 'Missing sales_order');
+    }
+
+    /**
+     * Runs the carts preset as the full role (positive control) and as "user" (must be denied).
+     */
+    private function assertCartPresetDeniedWithoutPermissions(): void
+    {
+        $this->runner->loginAs($this->userName('user2'));
+        $this->runner->runPreset('recent_carts', '2026-01-01', '2026-01-31');
+
+        $this->runner->loginAs($this->userName('user'));
+        $this->expectException(AuthorizationException::class);
+        $this->runner->runPreset('recent_carts', '2026-01-01', '2026-01-31');
     }
 
     private function userName(string $fixtureAlias): string

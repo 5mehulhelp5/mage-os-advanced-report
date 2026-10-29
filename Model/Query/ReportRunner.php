@@ -39,6 +39,9 @@ class ReportRunner implements ReportRunnerInterface
      */
     private const array MARGIN_METRICS = ['gross_margin', 'margin_pct'];
 
+    /**
+     * @param string[] $timeRelativeDatasets Dataset codes whose results depend on "now" (always open-period TTL)
+     */
     public function __construct(
         private readonly QueryPlanner $queryPlanner,
         private readonly DefinitionRegistry $definitionRegistry,
@@ -59,6 +62,7 @@ class ReportRunner implements ReportRunnerInterface
         private readonly AclContext $aclContext,
         private readonly ResultCacheLock $resultCacheLock,
         private readonly ResultConfigFingerprint $resultConfigFingerprint,
+        private readonly array $timeRelativeDatasets = [],
     ) {
     }
 
@@ -317,7 +321,8 @@ class ReportRunner implements ReportRunnerInterface
      */
     private function isOpenPeriod(array $plan): bool
     {
-        return $this->rangeIncludesToday($plan['main']->dateRange)
+        return \in_array($plan['main']->dataset->code, $this->timeRelativeDatasets, true)
+            || $this->rangeIncludesToday($plan['main']->dateRange)
             || $this->rangeIncludesToday($plan['comparison']?->dateRange);
     }
 

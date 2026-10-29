@@ -38,6 +38,31 @@ final class DiXmlTest extends TestCase
         );
     }
 
+    public function testItRegistersTheMainAndQuoteAliasCartProvidersInTheFieldExpressionResolverPool(): void
+    {
+        $xpath = $this->xpath();
+        $base = '/config/type[@name="MageOS\\AdvancedReport\\Model\\DataSource\\Mysql\\FieldExpressionResolver"]'
+            . '/arguments/argument[@name="providers"]/item';
+
+        foreach (['Converted', 'Abandoned', 'Recent', 'State'] as $suffix) {
+            self::assertSame(
+                self::EXPRESSION_NAMESPACE . 'Cart' . $suffix . 'Expression',
+                trim($this->element($xpath, $base . '[@name="cart_' . strtolower($suffix) . '"]')->textContent)
+            );
+            $virtual = self::EXPRESSION_NAMESPACE . 'CartItems' . $suffix . 'Expression';
+            self::assertSame(
+                $virtual,
+                trim($this->element($xpath, $base . '[@name="cart_items_' . strtolower($suffix) . '"]')->textContent)
+            );
+            $type = $this->element($xpath, '/config/virtualType[@name="' . $virtual . '"]');
+            self::assertSame(self::EXPRESSION_NAMESPACE . 'Cart' . $suffix . 'Expression', $type->getAttribute('type'));
+            self::assertSame(
+                'quote',
+                trim($this->element($xpath, 'arguments/argument[@name="alias"]', $type)->textContent)
+            );
+        }
+    }
+
     public function testItIsRegisteredAsTheFirstShipmentWaitExpressionProviderInDiXml(): void
     {
         $item = $this->element(
@@ -86,6 +111,23 @@ final class DiXmlTest extends TestCase
             $item = $this->element($xpath, 'item', $states);
             self::assertSame('const', $item->getAttribute('xsi:type'));
             self::assertSame('Magento\\Sales\\Model\\Order\\Creditmemo::STATE_CANCELED', trim($item->textContent));
+        }
+    }
+
+    public function testItRequiresMagentoReportsAbandonedForTheCartsAndCartItemsDatasets(): void
+    {
+        $xpath = $this->xpath();
+        $coreResources = '/config/type[@name="MageOS\\AdvancedReport\\Model\\Security\\DatasetAccess"]'
+            . '/arguments/argument[@name="coreResources"]';
+
+        foreach (['carts', 'cart_items'] as $code) {
+            $values = [];
+            foreach (self::queryNodes($xpath, $coreResources . '/item[@name="' . $code . '"]/item') as $node) {
+                self::assertInstanceOf(DOMElement::class, $node);
+                $values[] = trim($node->textContent);
+            }
+            self::assertContains('Magento_Reports::abandoned', $values, $code);
+            self::assertContains('Magento_Sales::sales_order', $values, $code);
         }
     }
 

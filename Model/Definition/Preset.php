@@ -12,7 +12,7 @@ final readonly class Preset
 {
     /**
      * @param string $code
-     * @param string $area One of sales|catalog|customers.
+     * @param string $area One of sales|catalog|customers|carts.
      * @param string $label
      * @param string $dataset Dataset code this preset queries.
      * @param string[] $metrics Metric codes.

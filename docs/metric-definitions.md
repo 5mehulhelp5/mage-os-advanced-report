@@ -143,6 +143,68 @@ products (no source items of their own) are excluded.
 | `salable_qty` | `stock_qty - reserved_qty - effective min qty` when the stock index marks the product salable, else 0. Mirrors core `GetProductSalableQty`; **no clamping**, so it can be negative. | As above. | Additive. | R26 | `Inventory/SalableStockTest::testItMatchesCoreSalableQuantityAtEveryStep`, `Inventory/SalableStockTest::testItReflectsASourceQuantityAdjustmentInSalableQuantity` |
 | `skus_salable` | `COUNT DISTINCT(product_id)` where `salable_qty > 0`. | | **Not additive.** | Value asserted (R24 closed). | `Inventory/StockCountMetricsTest::testItCountsSkusWithPositiveSalableQuantityAfterReservationsAsSalable`, `testItExcludesASkuFullyReservedByPlacedOrdersFromSkusSalable` |
 
+## `carts` and `cart_items` (Carts)
+
+Grain: one row per quote (`carts`), per quote item (`cart_items`). Area `carts`; ACL `MageOS_AdvancedReport::carts`.
+Amounts are in the base currency of the cart's store. Implicit filter `non_empty_cart`: only quotes with
+`items_count > 0` are read.
+
+Definitions shared by both datasets (`cart_items` evaluates them on the cart the item belongs to):
+
+| Term | Definition |
+|---|---|
+| Date | `quote.updated_at` (last activity), converted to the store timezone. Carts are not dated by creation. |
+| Abandoned | `is_active = 1`, `items_count > 0`, non-empty `customer_email` (guest carts with an email included) and `updated_at` older than `mageos_advancedreport/carts/abandoned_after_hours` (default 24). |
+| Recent | `is_active = 1`, `items_count > 0` and `updated_at` within `mageos_advancedreport/carts/recent_cart_hours` (default 24, maximum 120 because the recent presets use `last_7_days`). |
+| Converted | At least one order references the cart through `sales_order.quote_id`, in any status (canceled included). A multi-shipping checkout creates several orders for one cart and counts as one converted cart. |
+| `cart_state` | Active cart updated within the abandoned threshold: `active`; active and idle beyond it: `abandoned` (with email) or `abandoned without email`; inactive cart with an order: `converted`; any other inactive cart: `inactive`. Evaluated in this order. |
+
+Thresholds are computed in UTC from `ClockInterface::now()`, not from the database clock.
+
+Known limits:
+
+- **Dating**: a cart is dated by its last activity. A converted cart is dated near its order time, so `conversion_rate`
+  and `abandonment_rate` of a period compare carts active in that period, not carts created in it.
+- **Any order status**: a canceled order still marks its cart as converted.
+- **Multi-shipping**: several orders of one cart count once.
+- **PII**: `customer_email` is exposed; see [security](security.md#data-classification).
+- **Cache**: the result changes as time passes, so cart datasets always use the open-period TTL ([cache](cache.md#ttl)).
+
+### `carts` metrics
+
+| Metric | Formula | Notes |
+|---|---|---|
+| `carts` | `COUNT(entity_id)` | Carts with items. |
+| `cart_value` | `SUM(base_grand_total)` | |
+| `avg_cart_value` | `cart_value / carts` | Null when there are no carts. |
+| `items_in_carts` | `SUM(items_qty)` | Total quantity. |
+| `abandoned_carts` | `SUM(is_abandoned)` | Lower is better. |
+| `abandoned_value` | `SUM(base_grand_total)` of abandoned carts | Lower is better. |
+| `recent_carts` | `SUM(is_recent)` | |
+| `converted_carts` | `SUM(is_converted)` | |
+| `converted_value` | `SUM(base_grand_total)` of converted carts | Cart total, not the order total. |
+| `abandonment_rate` | `abandoned_carts / (abandoned_carts + converted_carts)` | Lower is better; null when both are 0. |
+| `conversion_rate` | `converted_carts / carts` | Null when there are no carts. |
+
+### `cart_items` metrics
+
+Configurable products are counted on the parent line (the simple child is ignored); bundles are a single line. Items are
+dated by the last activity of their cart. `category_id` is a fan-out dimension: totals may not equal the sum of the rows (R01).
+
+| Metric | Formula | Notes |
+|---|---|---|
+| `units_in_carts` | `SUM(qty)` | |
+| `cart_items_value` | `SUM(base_row_total)` | Excluding tax. |
+| `carts` | `COUNT DISTINCT(quote_id)` | Not additive across rows. |
+| `abandoned_units` | `SUM(qty)` in abandoned carts | Lower is better. |
+| `abandoned_items_value` | `SUM(base_row_total)` in abandoned carts | Lower is better. |
+| `abandoned_carts` | `COUNT DISTINCT(quote_id)` of abandoned carts | Not additive; lower is better. |
+| `converted_units` | `SUM(qty)` in converted carts | |
+| `item_conversion_rate` | `converted_units / units_in_carts` | Null when there are no units. |
+
+Carts are verified by the unit tests of the cart providers and the integration tests under `Test/Integration/`; the raw
+expressions are in the [metric inventory](metric-inventory.md).
+
 ## Inventory quantities: physical, reserved and salable
 
 | Term | Meaning | Where it is reported |

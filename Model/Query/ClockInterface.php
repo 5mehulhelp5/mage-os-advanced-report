@@ -17,4 +17,9 @@ interface ClockInterface
      * timezone (the zone custom date ranges are parsed in), so instants compare consistently.
      */
     public function today(string $timezone): DateTimeImmutable;
+
+    /**
+     * The current instant, in UTC.
+     */
+    public function now(): DateTimeImmutable;
 }

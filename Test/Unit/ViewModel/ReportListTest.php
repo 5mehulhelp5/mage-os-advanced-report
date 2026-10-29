@@ -35,6 +35,42 @@ final class ReportListTest extends TestCase
         self::assertSame(['Preset b'], array_column($areas['catalog']['presets'], 'label'));
     }
 
+    public function testItListsTheCartsAreaWithItsLabelAndDescription(): void
+    {
+        $areas = $this->build(
+            [$this->preset('c', 'carts', 'quote_carts')],
+            [],
+            ['MageOS_AdvancedReport::carts'],
+        )->getAreas();
+
+        self::assertSame('Carts', $areas['carts']['label']);
+        self::assertSame(
+            'Ready-made cart reports: recent and abandoned carts, products left in carts and cart conversion.',
+            (string)$areas['carts']['description'],
+        );
+    }
+
+    public function testItListsTheCartsAreaInAlphabeticalOrderWithTheOtherAreas(): void
+    {
+        $areas = $this->build(
+            [
+                $this->preset('a', 'sales', 'sales_orders'),
+                $this->preset('b', 'catalog', 'catalog_stock'),
+                $this->preset('c', 'carts', 'quote_carts'),
+                $this->preset('d', 'customers', 'customer_orders'),
+            ],
+            [],
+            [
+                'MageOS_AdvancedReport::sales',
+                'MageOS_AdvancedReport::catalog',
+                'MageOS_AdvancedReport::carts',
+                'MageOS_AdvancedReport::customers',
+            ],
+        )->getAreas();
+
+        self::assertSame(['carts', 'catalog', 'customers', 'sales'], array_keys($areas));
+    }
+
     public function testItHidesPresetsWhoseDatasetTheAdminCannotAccess(): void
     {
         $areas = $this->build(
@@ -195,9 +231,10 @@ final class ReportListTest extends TestCase
             'sales_items' => 'MageOS_AdvancedReport::sales',
             'catalog_stock' => 'MageOS_AdvancedReport::catalog',
             'customer_orders' => 'MageOS_AdvancedReport::customers',
+            'quote_carts' => 'MageOS_AdvancedReport::carts',
         ];
         $areaOf = ['sales_orders' => 'sales', 'sales_items' => 'catalog', 'catalog_stock' => 'catalog',
-            'customer_orders' => 'customers'];
+            'customer_orders' => 'customers', 'quote_carts' => 'carts'];
         $registry = $this->createStub(DefinitionRegistry::class);
         $registry->method('getPresets')->willReturn($presets);
         $registry->method('getDataset')->willReturnCallback(

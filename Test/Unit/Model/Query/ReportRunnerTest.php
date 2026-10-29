@@ -797,6 +797,41 @@ final class ReportRunnerTest extends TestCase
         }
     }
 
+    public function testItCachesTimeRelativeDatasetsWithTheOpenPeriodTtlEvenForClosedRanges(): void
+    {
+        $this->assertSavedAsOpenPeriod(['sales_items'], true);
+    }
+
+    public function testItKeepsTheClosedPeriodTtlForOtherDatasetsOnClosedRanges(): void
+    {
+        $this->assertSavedAsOpenPeriod([], false);
+    }
+
+    /**
+     * @param string[] $timeRelativeDatasets
+     */
+    private function assertSavedAsOpenPeriod(array $timeRelativeDatasets, bool $expectedOpenPeriod): void
+    {
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn([
+            'main' => $this->buildResolvedQuery(['net_sales']),
+            'comparison' => null,
+        ]);
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($this->executingSource(self::once()));
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->method('buildKey')->willReturn('cache-key');
+        $resultCache->method('load')->willReturn(null);
+        $resultCache->expects(self::once())->method('save')->with('cache-key', self::anything(), $expectedOpenPeriod);
+
+        $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'resultCache' => $resultCache,
+            'timeRelativeDatasets' => $timeRelativeDatasets,
+        ])->run($this->buildRequest());
+    }
+
     public function testItAcquiresALockNamedAfterTheCacheKeyOnACacheMiss(): void
     {
         $lockManager = $this->createMock(LockManagerInterface::class);
@@ -1047,6 +1082,7 @@ final class ReportRunnerTest extends TestCase
             $overrides['aclContext'] ?? $this->aclContext,
             $overrides['resultCacheLock'] ?? new ResultCacheLock($this->createStub(LockManagerInterface::class), new ResultCacheWriteGuard()),
             $overrides['resultConfigFingerprint'] ?? $this->resultConfigFingerprint,
+            $overrides['timeRelativeDatasets'] ?? [],
         );
     }
 

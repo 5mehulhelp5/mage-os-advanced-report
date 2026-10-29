@@ -115,3 +115,40 @@ Fan-out dimensions: none
 | `reserved_qty` | Reserved quantity | aggregate | sum | `main.reserved_qty` |  |  | stock_provider |
 | `salable_qty` | Salable quantity | aggregate | sum | `main.salable_qty` |  |  | stock_provider |
 | `skus_salable` | SKUs salable | aggregate | count_distinct | `main.product_id` |  |  | stock_provider |
+
+## carts (Carts)
+
+Base table: `quote`
+
+Fan-out dimensions: none
+
+| Metric | Label | Kind | Aggregate | Expression | Joins | Fan-out | Depends on |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `carts` | Carts | aggregate | count | `main.entity_id` |  |  | timezone |
+| `cart_value` | Cart value | aggregate | sum | `COALESCE(main.base_grand_total, 0)` |  |  | timezone, currency |
+| `avg_cart_value` | Average cart value | derived |  | `cart_value / carts` |  |  | timezone, currency |
+| `items_in_carts` | Items in carts | aggregate | sum | `COALESCE(main.items_qty, 0)` |  |  | timezone |
+| `abandoned_carts` | Abandoned carts | aggregate | sum | `provider:cart_abandoned` |  |  | timezone |
+| `abandoned_value` | Abandoned value | aggregate | sum | `COALESCE(main.base_grand_total, 0)` |  |  | timezone, currency |
+| `recent_carts` | Recent carts | aggregate | sum | `provider:cart_recent` |  |  | timezone |
+| `converted_carts` | Converted carts | aggregate | sum | `provider:cart_converted` |  |  | timezone |
+| `converted_value` | Converted value | aggregate | sum | `COALESCE(main.base_grand_total, 0)` |  |  | timezone, currency |
+| `abandonment_rate` | Abandonment rate | derived |  | `abandoned_carts / (abandoned_carts + converted_carts)` |  |  | timezone |
+| `conversion_rate` | Conversion rate | derived |  | `converted_carts / carts` |  |  | timezone |
+
+## cart_items (Cart items)
+
+Base table: `quote_item`
+
+Fan-out dimensions: category_id
+
+| Metric | Label | Kind | Aggregate | Expression | Joins | Fan-out | Depends on |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `units_in_carts` | Units in carts | aggregate | sum | `COALESCE(main.qty, 0)` |  | ⚠ by category_id | timezone |
+| `cart_items_value` | Cart items value | aggregate | sum | `COALESCE(main.base_row_total, 0)` |  | ⚠ by category_id | timezone, currency |
+| `carts` | Carts | aggregate | count_distinct | `main.quote_id` |  |  | timezone |
+| `abandoned_units` | Abandoned units | aggregate | sum | `COALESCE(main.qty, 0)` | quote | ⚠ by category_id | timezone |
+| `abandoned_items_value` | Abandoned items value | aggregate | sum | `COALESCE(main.base_row_total, 0)` | quote | ⚠ by category_id | timezone, currency |
+| `abandoned_carts` | Abandoned carts | aggregate | count_distinct | `main.quote_id` | quote |  | timezone |
+| `converted_units` | Converted units | aggregate | sum | `COALESCE(main.qty, 0)` | quote | ⚠ by category_id | timezone |
+| `item_conversion_rate` | Item conversion rate | derived |  | `converted_units / units_in_carts` | quote | ⚠ by category_id | timezone |

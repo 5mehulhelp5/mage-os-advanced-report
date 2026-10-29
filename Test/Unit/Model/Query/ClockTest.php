@@ -33,4 +33,15 @@ final class ClockTest extends TestCase
 
         self::assertSame('2026-03-16', $today->format('Y-m-d'));
     }
+
+    public function testItReturnsTheCurrentUtcInstantFromTheClock(): void
+    {
+        $dateTime = $this->createStub(DateTime::class);
+        $dateTime->method('gmtTimestamp')->willReturn(1773622800);
+
+        $now = (new Clock($dateTime))->now();
+
+        self::assertSame('2026-03-16 01:00:00', $now->format('Y-m-d H:i:s'));
+        self::assertSame('UTC', $now->getTimezone()->getName());
+    }
 }

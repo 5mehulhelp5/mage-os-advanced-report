@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="quote_carts" label="Quote carts" acl="MageOS_AdvancedReport::carts" area="carts">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <field code="grand_total" label="Grand Total" type="money">
+            <mysql expression="main.base_grand_total"/>
+        </field>
+        <metric code="orders" label="Orders" format="integer" aggregate="count" field="grand_total"/>
+    </dataset>
+    <preset code="recent_carts" area="carts" dataset="quote_carts" label="Recent carts"
+            sources="mysql" dateRange="last_30_days">
+        <metric code="orders"/>
+    </preset>
+</config>

@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(ResultConfigFingerprint::class)]
 final class ResultConfigFingerprintTest extends TestCase
 {
-    public function testItReturnsTheSortedReportAttributesDeadStockDaysMaxRowsConnectionNameAndMinQty(): void
+    public function testItIncludesAbandonedAfterHoursAndRecentCartHoursInTheResultConfigFingerprint(): void
     {
         $fingerprint = $this->buildFingerprint(['color', 'brand'], '2.50');
 
@@ -24,6 +24,8 @@ final class ResultConfigFingerprintTest extends TestCase
                 'maxRows' => 500,
                 'connectionName' => 'default',
                 'minQty' => '2.5',
+                'abandonedAfterHours' => 24,
+                'recentCartHours' => 48,
             ],
             $fingerprint->get(),
         );
@@ -58,6 +60,8 @@ final class ResultConfigFingerprintTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('getReportAttributes')->willReturn($attributes);
         $config->method('getDeadStockDays')->willReturn(90);
+        $config->method('getAbandonedAfterHours')->willReturn(24);
+        $config->method('getRecentCartHours')->willReturn(48);
         $config->method('getMaxRows')->willReturn(500);
         $config->method('getConnectionName')->willReturn('default');
         $config->method('getQueryTimeoutMs')->willReturn($timeoutMs);

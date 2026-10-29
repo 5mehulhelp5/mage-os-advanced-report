@@ -88,6 +88,12 @@ final class ResultConfigKeyTest extends TestCase
     }
 
     #[Cache('advanced_report', true)]
+    public function testItProducesANewCacheKeyWhenAbandonedAfterHoursChanges(): void
+    {
+        $this->assertMissesAfterConfigChange('mageos_advancedreport/carts/abandoned_after_hours', '72');
+    }
+
+    #[Cache('advanced_report', true)]
     public function testItMissesTheCacheWhenMaxRowsChangeWithoutTheAdminConfigSave(): void
     {
         $this->assertMissesAfterConfigChange('mageos_advancedreport/performance/max_rows', '5');

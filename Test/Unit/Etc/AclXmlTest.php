@@ -24,7 +24,7 @@ final class AclXmlTest extends TestCase
         return new DOMXPath($document);
     }
 
-    public function testItDeclaresAllSevenChildAclResourcesUnderMageOSAdvancedReportReports(): void
+    public function testItDeclaresAllEightChildAclResourcesUnderMageOSAdvancedReportReports(): void
     {
         $xpath = $this->loadXPath();
         $nodes = self::queryNodes(
@@ -43,6 +43,7 @@ final class AclXmlTest extends TestCase
                 'MageOS_AdvancedReport::sales',
                 'MageOS_AdvancedReport::catalog',
                 'MageOS_AdvancedReport::customers',
+                'MageOS_AdvancedReport::carts',
                 'MageOS_AdvancedReport::saved_manage',
                 'MageOS_AdvancedReport::saved_share',
                 'MageOS_AdvancedReport::export',

@@ -648,6 +648,242 @@
                    labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
     </dataset>
 
+    <dataset code="carts" label="Carts" acl="MageOS_AdvancedReport::carts" area="carts">
+        <source name="mysql" table="quote" alias="main"/>
+        <implicitFilter code="non_empty_cart"/>
+
+        <join code="store" table="store" alias="store" type="left"
+              condition="store.store_id = main.store_id"/>
+
+        <!-- Reserved fields (drive date filtering/bucketing and store scope). -->
+        <field code="created_at" label="Last activity" type="date"
+               description="When the cart was last updated.">
+            <mysql expression="main.updated_at"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="main.store_id"/>
+        </field>
+        <field code="base_currency_code" label="Base currency" type="string">
+            <mysql expression="main.base_currency_code"/>
+        </field>
+
+        <field code="cart_id" label="Cart ID" type="id">
+            <mysql expression="main.entity_id"/>
+        </field>
+        <field code="items_count" label="Items count" type="integer"
+               description="Number of distinct items in the cart.">
+            <mysql expression="main.items_count"/>
+        </field>
+        <field code="items_qty" label="Items quantity" type="decimal"
+               description="Total quantity of the items in the cart.">
+            <mysql expression="COALESCE(main.items_qty, 0)"/>
+        </field>
+        <field code="cart_value_amount" label="Cart value amount" type="money"
+               description="Cart grand total in the base currency.">
+            <mysql expression="COALESCE(main.base_grand_total, 0)"/>
+        </field>
+        <field code="subtotal_amount" label="Cart subtotal amount" type="money"
+               description="Cart subtotal in the base currency.">
+            <mysql expression="COALESCE(main.base_subtotal, 0)"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="main.customer_group_id"/>
+        </field>
+        <field code="customer_email" label="Customer email" type="string">
+            <mysql expression="LOWER(TRIM(main.customer_email))"/>
+        </field>
+        <field code="is_guest" label="Is guest" type="boolean"
+               description="Whether the cart has no customer account.">
+            <mysql expression="(main.customer_id IS NULL OR main.customer_id = 0)"/>
+        </field>
+        <field code="coupon_code" label="Coupon code" type="string">
+            <mysql expression="main.coupon_code"/>
+        </field>
+        <field code="website_id" label="Website" type="id">
+            <mysql expression="store.website_id" joins="store"/>
+        </field>
+        <field code="is_converted" label="Is converted" type="boolean"
+               description="Whether an order was placed from the cart.">
+            <mysql expressionProvider="cart_converted"/>
+        </field>
+        <field code="is_abandoned" label="Is abandoned" type="boolean"
+               description="Whether the cart is active, has items and an email, and was idle beyond the abandoned threshold.">
+            <mysql expressionProvider="cart_abandoned"/>
+        </field>
+        <field code="is_recent" label="Is recent" type="boolean"
+               description="Whether the cart is active, has items and was updated within the recent cart hours.">
+            <mysql expressionProvider="cart_recent"/>
+        </field>
+        <field code="cart_state" label="Cart state" type="string"
+               description="Lifecycle state of the cart: active, abandoned, abandoned without email, converted or inactive.">
+            <mysql expressionProvider="cart_state"/>
+        </field>
+
+        <metric code="carts" label="Carts" format="integer" aggregate="count" field="cart_id"
+                description="Number of carts with items. Limitation: carts are dated by their last activity (updated_at); a converted cart is dated near its order time."/>
+        <metric code="cart_value" label="Cart value" format="money" aggregate="sum" field="cart_value_amount"
+                description="Sum of the cart grand totals."/>
+        <metric code="avg_cart_value" label="Average cart value" format="money" formula="cart_value / carts"
+                description="Cart value divided by the number of carts."/>
+        <metric code="items_in_carts" label="Items in carts" format="number" aggregate="sum" field="items_qty"
+                description="Total quantity of the items in the carts."/>
+        <metric code="abandoned_carts" label="Abandoned carts" format="integer" aggregate="sum" field="is_abandoned"
+                lowerIsBetter="true"
+                description="Number of active carts with items and an email that were idle beyond the abandoned threshold. A lower value is an improvement."/>
+        <metric code="abandoned_value" label="Abandoned value" format="money" aggregate="sum" field="cart_value_amount"
+                condition="is_abandoned" lowerIsBetter="true"
+                description="Cart value of the abandoned carts. A lower value is an improvement."/>
+        <metric code="recent_carts" label="Recent carts" format="integer" aggregate="sum" field="is_recent"
+                description="Number of active carts with items updated within the recent cart hours."/>
+        <metric code="converted_carts" label="Converted carts" format="integer" aggregate="sum" field="is_converted"
+                description="Number of carts from which an order was placed. Limitation: carts are dated by their last activity (updated_at); a converted cart is dated near its order time."/>
+        <metric code="converted_value" label="Converted value" format="money" aggregate="sum" field="cart_value_amount"
+                condition="is_converted"
+                description="Cart value of the converted carts."/>
+        <metric code="abandonment_rate" label="Abandonment rate" format="percent"
+                formula="abandoned_carts / (abandoned_carts + converted_carts)" lowerIsBetter="true"
+                description="Abandoned carts as a percentage of abandoned and converted carts. A lower value is an improvement. Limitation: carts are dated by their last activity (updated_at); a converted cart is dated near its order time."/>
+        <metric code="conversion_rate" label="Conversion rate" format="percent" formula="converted_carts / carts"
+                description="Converted carts as a percentage of all carts. Limitation: carts are dated by their last activity (updated_at); a converted cart is dated near its order time."/>
+
+        <dimension code="activity_date" label="Last activity date" field="created_at"
+                   granularities="hour,day,week,month,year"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="website_id" label="Website" field="website_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\WebsiteLabelResolver"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="customer_type" label="Customer type" field="is_guest"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\GuestLabelResolver"/>
+        <dimension code="cart_state" label="Cart state" field="cart_state"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CartStateLabelResolver"/>
+        <dimension code="coupon_code" label="Coupon code" field="coupon_code"/>
+        <dimension code="customer_email" label="Customer email" field="customer_email"/>
+        <dimension code="cart_id" label="Cart" field="cart_id"/>
+    </dataset>
+
+    <dataset code="cart_items" label="Cart items" acl="MageOS_AdvancedReport::carts" area="carts">
+        <source name="mysql" table="quote_item" alias="main"/>
+        <implicitFilter code="top_level_item"/>
+        <implicitFilter code="non_empty_cart"/>
+
+        <!--
+            "quote" is mandatory: reserved fields (created_at, store_id) map here because quote has the
+            indexed updated_at/store_id columns and carries the cart semantics shared with "carts". The join is
+            rendered as a left join; items of empty or missing quotes are excluded by the non_empty_cart filter.
+        -->
+        <join code="quote" table="quote" alias="quote" type="inner"
+              condition="quote.entity_id = main.quote_id"/>
+        <join code="store" table="store" alias="store" type="left"
+              condition="store.store_id = quote.store_id" requires="quote"/>
+        <join code="parent_product" table="catalog_product_entity" alias="parent_product" type="left"
+              condition="parent_product.entity_id = main.product_id"/>
+        <join code="category" table="catalog_category_product" alias="category" type="left"
+              condition="category.product_id = main.product_id" cardinality="many"/>
+
+        <!-- Reserved fields, mapped to the quote row so the indexed quote columns drive the query. -->
+        <field code="created_at" label="Last activity" type="date"
+               description="When the cart was last updated.">
+            <mysql expression="quote.updated_at" joins="quote"/>
+        </field>
+        <field code="store_id" label="Store" type="id">
+            <mysql expression="quote.store_id" joins="quote"/>
+        </field>
+        <field code="base_currency_code" label="Base currency" type="string">
+            <mysql expression="quote.base_currency_code" joins="quote"/>
+        </field>
+
+        <field code="item_id" label="Item ID" type="id">
+            <mysql expression="main.item_id"/>
+        </field>
+        <field code="cart_id" label="Cart ID" type="id">
+            <mysql expression="main.quote_id"/>
+        </field>
+        <field code="product_id" label="Product ID" type="id">
+            <mysql expression="main.product_id"/>
+        </field>
+        <field code="sku" label="SKU" type="string" description="SKU of the cart item.">
+            <mysql expression="main.sku"/>
+        </field>
+        <field code="parent_sku" label="Parent SKU" type="string"
+               description="SKU of the product of the top-level cart item (the configurable parent for configurable products).">
+            <mysql expression="parent_product.sku" joins="parent_product"/>
+        </field>
+        <field code="category_id" label="Category ID" type="id">
+            <mysql expression="category.category_id" joins="category"/>
+        </field>
+        <field code="customer_group_id" label="Customer group" type="id">
+            <mysql expression="quote.customer_group_id" joins="quote"/>
+        </field>
+        <field code="items_count" label="Cart items count" type="integer"
+               description="Number of distinct items in the cart the item belongs to.">
+            <mysql expression="quote.items_count" joins="quote"/>
+        </field>
+        <field code="qty_amount" label="Quantity" type="decimal"
+               description="Quantity of the cart item.">
+            <mysql expression="COALESCE(main.qty, 0)"/>
+        </field>
+        <field code="row_value_amount" label="Row value amount" type="money"
+               description="Row total of the cart item, excluding tax, in the base currency.">
+            <mysql expression="COALESCE(main.base_row_total, 0)"/>
+        </field>
+        <field code="is_converted" label="Is converted" type="boolean"
+               description="Whether an order was placed from the cart of the item.">
+            <mysql expressionProvider="cart_items_converted" joins="quote"/>
+        </field>
+        <field code="is_abandoned" label="Is abandoned" type="boolean"
+               description="Whether the cart of the item is active, has items and an email, and was idle beyond the abandoned threshold.">
+            <mysql expressionProvider="cart_items_abandoned" joins="quote"/>
+        </field>
+        <field code="is_recent" label="Is recent" type="boolean"
+               description="Whether the cart of the item is active, has items and was updated within the recent cart hours.">
+            <mysql expressionProvider="cart_items_recent" joins="quote"/>
+        </field>
+        <field code="cart_state" label="Cart state" type="string"
+               description="Lifecycle state of the cart of the item: active, abandoned, abandoned without email, converted or inactive.">
+            <mysql expressionProvider="cart_items_state" joins="quote"/>
+        </field>
+
+        <metric code="units_in_carts" label="Units in carts" format="number" aggregate="sum" field="qty_amount"
+                description="Quantity of the products in the carts. Configurable products are counted on the parent line (the simple child is ignored); bundle = single line. Limitation: items are dated by the last activity of their cart (updated_at)."/>
+        <metric code="cart_items_value" label="Cart items value" format="money" aggregate="sum"
+                field="row_value_amount"
+                description="Row total of the cart items, excluding tax."/>
+        <metric code="carts" label="Carts" format="integer" aggregate="count_distinct" field="cart_id"
+                description="Number of distinct carts containing the items."/>
+        <metric code="abandoned_units" label="Abandoned units" format="number" aggregate="sum" field="qty_amount"
+                condition="is_abandoned" lowerIsBetter="true"
+                description="Quantity of the products in abandoned carts. A lower value is an improvement."/>
+        <metric code="abandoned_items_value" label="Abandoned items value" format="money" aggregate="sum"
+                field="row_value_amount" condition="is_abandoned" lowerIsBetter="true"
+                description="Row total of the items in abandoned carts. A lower value is an improvement."/>
+        <metric code="abandoned_carts" label="Abandoned carts" format="integer" aggregate="count_distinct"
+                field="cart_id" condition="is_abandoned" lowerIsBetter="true"
+                description="Number of distinct abandoned carts containing the items. A lower value is an improvement."/>
+        <metric code="converted_units" label="Converted units" format="number" aggregate="sum" field="qty_amount"
+                condition="is_converted"
+                description="Quantity of the products in carts from which an order was placed."/>
+        <metric code="item_conversion_rate" label="Item conversion rate" format="percent"
+                formula="converted_units / units_in_carts"
+                description="Units in converted carts as a percentage of all units in carts."/>
+
+        <dimension code="activity_date" label="Last activity date" field="created_at"
+                   granularities="hour,day,week,month,year"/>
+        <dimension code="store_id" label="Store" field="store_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\StoreLabelResolver"/>
+        <dimension code="customer_group_id" label="Customer group" field="customer_group_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CustomerGroupLabelResolver"/>
+        <dimension code="cart_state" label="Cart state" field="cart_state"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CartStateLabelResolver"/>
+        <dimension code="sku" label="SKU" field="sku"/>
+        <dimension code="parent_sku" label="Parent SKU" field="parent_sku"/>
+        <dimension code="product_id" label="Product" field="product_id"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver"/>
+        <dimension code="category_id" label="Category" field="category_id" nonAdditive="true"
+                   labelResolver="MageOS\AdvancedReport\Model\Label\CategoryLabelResolver"/>
+    </dataset>
+
     <!-- Sales presets (area sales, dataset sales_orders). -->
     <preset code="sales_overview" area="sales" dataset="sales_orders" label="Sales overview" description="Orders, revenue, discounts and average order value over time, compared with the previous period." dateRange="last_30_days" compareTo="previous_period" sources="mysql">
         <metric code="orders"/>
@@ -798,5 +1034,69 @@
     <preset code="new_customer_registrations" area="customers" dataset="customers" label="New customer registrations" description="New customer accounts per day, compared with the previous period." dateRange="last_30_days" compareTo="previous_period" sources="mysql">
         <metric code="registrations"/>
         <dimension code="registration_date" granularity="day"/>
+    </preset>
+
+    <!-- Cart presets (area carts). -->
+    <preset code="recent_carts" area="carts" dataset="carts" label="Recent carts" description="Active carts updated within the configured recent window." dateRange="last_7_days" sources="mysql">
+        <metric code="cart_value"/>
+        <metric code="items_in_carts"/>
+        <dimension code="cart_id"/>
+        <dimension code="customer_email"/>
+        <filter field="is_recent" operator="eq" value="1"/>
+        <sort by="cart_value" direction="desc"/>
+    </preset>
+
+    <preset code="recent_cart_items" area="carts" dataset="cart_items" label="Recent cart items" description="Products in the active carts updated within the configured recent window." dateRange="last_7_days" sources="mysql" alternateDimension="sku">
+        <metric code="units_in_carts"/>
+        <metric code="cart_items_value"/>
+        <metric code="carts"/>
+        <dimension code="parent_sku"/>
+        <filter field="is_recent" operator="eq" value="1"/>
+        <sort by="units_in_carts" direction="desc"/>
+    </preset>
+
+    <preset code="abandoned_carts_trend" area="carts" dataset="carts" label="Abandoned carts trend" description="Abandoned and converted carts per day, compared with the previous period." dateRange="last_30_days" compareTo="previous_period" sources="mysql">
+        <metric code="abandoned_carts"/>
+        <metric code="abandoned_value"/>
+        <metric code="converted_carts"/>
+        <metric code="abandonment_rate"/>
+        <dimension code="activity_date" granularity="day"/>
+    </preset>
+
+    <preset code="abandoned_carts_list" area="carts" dataset="carts" label="Abandoned carts" description="Abandoned carts with the customer email to contact, largest value first." dateRange="last_30_days" sources="mysql">
+        <metric code="abandoned_value"/>
+        <metric code="items_in_carts"/>
+        <dimension code="cart_id"/>
+        <dimension code="customer_email"/>
+        <dimension code="activity_date" granularity="day"/>
+        <filter field="is_abandoned" operator="eq" value="1"/>
+        <sort by="abandoned_value" direction="desc"/>
+    </preset>
+
+    <preset code="top_abandoned_products" area="carts" dataset="cart_items" label="Top abandoned products" description="Products left in abandoned carts, ranked by their value." dateRange="last_30_days" sources="mysql" alternateDimension="sku">
+        <metric code="abandoned_units"/>
+        <metric code="abandoned_items_value"/>
+        <metric code="abandoned_carts"/>
+        <dimension code="parent_sku"/>
+        <filter field="is_abandoned" operator="eq" value="1"/>
+        <sort by="abandoned_items_value" direction="desc"/>
+    </preset>
+
+    <preset code="products_added_to_cart" area="carts" dataset="cart_items" label="Products added to cart" description="Units added to carts for each product, with how many ended up in an order." dateRange="last_30_days" sources="mysql" alternateDimension="sku">
+        <metric code="units_in_carts"/>
+        <metric code="carts"/>
+        <metric code="converted_units"/>
+        <metric code="item_conversion_rate"/>
+        <dimension code="parent_sku"/>
+        <sort by="units_in_carts" direction="desc"/>
+    </preset>
+
+    <preset code="cart_conversion" area="carts" dataset="carts" label="Cart conversion" description="Carts, conversions and abandonment for each cart state." dateRange="last_30_days" sources="mysql">
+        <metric code="carts"/>
+        <metric code="converted_carts"/>
+        <metric code="conversion_rate"/>
+        <metric code="abandoned_carts"/>
+        <metric code="abandonment_rate"/>
+        <dimension code="cart_state"/>
     </preset>
 </config>

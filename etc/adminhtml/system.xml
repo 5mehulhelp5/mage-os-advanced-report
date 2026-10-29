@@ -40,6 +40,19 @@
                     <can_be_empty>1</can_be_empty>
                 </field>
             </group>
+            <group id="carts" translate="label" type="text" sortOrder="35" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Carts</label>
+                <field id="abandoned_after_hours" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Abandoned After (hours)</label>
+                    <comment>Hours without cart activity after which an active cart with items and a customer email is considered abandoned.</comment>
+                    <validate>required-entry validate-digits validate-greater-than-zero</validate>
+                </field>
+                <field id="recent_cart_hours" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">
+                    <label>Recent Carts Window (hours)</label>
+                    <comment>Active carts updated within this many hours are reported as recent (1 to 120).</comment>
+                    <validate>required-entry validate-digits validate-greater-than-zero validate-digits-range digits-range-1-120</validate>
+                </field>
+            </group>
             <group id="performance" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
                 <label>Performance</label>
                 <field id="connection_name" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="1">

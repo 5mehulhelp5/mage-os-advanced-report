@@ -1082,7 +1082,7 @@
         <sort by="abandoned_items_value" direction="desc"/>
     </preset>
 
-    <preset code="products_added_to_cart" area="carts" dataset="cart_items" label="Products added to cart" description="Units added to carts for each product, with how many ended up in an order." dateRange="last_30_days" sources="mysql" alternateDimension="sku">
+    <preset code="products_added_to_cart" area="carts" dataset="cart_items" label="Product cart conversion" description="Units in carts for each product, by last cart activity, with how many ended up in an order." dateRange="last_30_days" sources="mysql" alternateDimension="sku">
         <metric code="units_in_carts"/>
         <metric code="carts"/>
         <metric code="converted_units"/>

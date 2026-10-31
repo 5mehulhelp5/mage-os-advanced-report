@@ -27,6 +27,11 @@ final class OrderUnitsNetOfCanceledExpressionTest extends TestCase
         );
     }
 
+    public function testItRendersTheUnitsNetOfCanceledSubqueryAgainstThePrefixedSalesOrderItemTable(): void
+    {
+        self::assertStringContainsString('FROM pre_sales_order_item AS oi', $this->expression('main', 'pre_'));
+    }
+
     public function testItUsesTheOrderAliasOfTheDataset(): void
     {
         $sql = $this->expression('order');
@@ -35,9 +40,9 @@ final class OrderUnitsNetOfCanceledExpressionTest extends TestCase
         self::assertStringContainsString('oi.order_id = order.entity_id', $sql);
     }
 
-    private function expression(string $alias): string
+    private function expression(string $alias, string $prefix = ''): string
     {
-        return (new OrderUnitsNetOfCanceledExpression())
+        return (new OrderUnitsNetOfCanceledExpression($this->createReportConnection($prefix)))
             ->getExpression($this->dataset($alias), $this->createSqlAdapter());
     }
 

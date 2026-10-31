@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\Query;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Magento\Framework\Phrase;
 
 /**
@@ -46,14 +47,22 @@ class DateRangeResolver
     }
 
     /**
-     * The period of the same length immediately preceding `$range->from`.
+     * The period immediately preceding `$range->from`: the preceding whole calendar months when
+     * `$range` is made of whole months (a whole year is a whole number of months), otherwise
+     * the same number of days. The result depends on the range only, never on the granularity.
      */
     public function previousPeriod(ResolvedDateRange $range, ReportScope $scope): ComparisonPeriod
     {
-        $to = $range->from->modify('-1 day');
-        $from = $to->modify(\sprintf('-%d days', $range->days - 1));
+        if ($this->isWholeMonths($range)) {
+            $months = $this->monthCount($range);
+            $from = $range->from->modify(\sprintf('-%d months', $months));
+            $to = $range->from->modify('-1 day');
+        } else {
+            $to = $range->from->modify('-1 day');
+            $from = $to->modify(\sprintf('-%d days', $range->days - 1));
+        }
 
-        return $this->toComparisonPeriod($from, $to, $range, $scope);
+        return $this->toComparisonPeriod($from, $to, $range, $scope, CompareMode::PREVIOUS_PERIOD);
     }
 
     /**
@@ -63,10 +72,11 @@ class DateRangeResolver
     public function previousYear(ResolvedDateRange $range, ReportScope $scope): ComparisonPeriod
     {
         return $this->toComparisonPeriod(
-            $this->subtractYear($range->from),
-            $this->subtractYear($range->to),
+            CalendarYear::subtract($range->from),
+            CalendarYear::subtract($range->to),
             $range,
             $scope,
+            CompareMode::PREVIOUS_YEAR,
         );
     }
 
@@ -93,7 +103,7 @@ class DateRangeResolver
     }
 
     /**
-     * Resolves `$from..$to` and pairs it with the offset that maps its "from" onto
+     * Resolves `$from..$to` and pairs it with the day offset that maps its "from" onto
      * `$range->from`, for {@see previousPeriod()} and {@see previousYear()}.
      */
     private function toComparisonPeriod(
@@ -101,26 +111,35 @@ class DateRangeResolver
         DateTimeImmutable $to,
         ResolvedDateRange $range,
         ReportScope $scope,
+        CompareMode $mode,
     ): ComparisonPeriod {
         $comparisonRange = $this->build($from, $to, $this->clock->today($scope->timezone));
 
-        return new ComparisonPeriod($comparisonRange, $comparisonRange->from->diff($range->from));
+        return new ComparisonPeriod($comparisonRange, $mode, $this->calendarDaysBetween($comparisonRange->from, $range->from));
     }
 
     /**
-     * Subtracts one calendar year from `$date`, clamping 29 February onto 28 February
-     * when the target year is not a leap year.
+     * Whole days between two dates, computed on calendar dates so DST never yields fractions.
      */
-    private function subtractYear(DateTimeImmutable $date): DateTimeImmutable
+    private function calendarDaysBetween(DateTimeImmutable $earlier, DateTimeImmutable $later): int
     {
-        $year = (int) $date->format('Y') - 1;
-        $month = (int) $date->format('m');
-        $day = (int) $date->format('d');
-        if ($month === 2 && $day === 29 && !checkdate(2, 29, $year)) {
-            $day = 28;
-        }
+        $utc = new DateTimeZone('UTC');
 
-        return $date->setDate($year, $month, $day);
+        return (int) (new DateTimeImmutable($earlier->format('Y-m-d'), $utc))
+            ->diff(new DateTimeImmutable($later->format('Y-m-d'), $utc))
+            ->days;
+    }
+
+    private function isWholeMonths(ResolvedDateRange $range): bool
+    {
+        return $range->from->format('j') === '1'
+            && $range->to->format('Y-m-d') === $range->to->modify('last day of this month')->format('Y-m-d');
+    }
+
+    private function monthCount(ResolvedDateRange $range): int
+    {
+        return ((int) $range->to->format('Y') - (int) $range->from->format('Y')) * 12
+            + (int) $range->to->format('n') - (int) $range->from->format('n') + 1;
     }
 
     private function parseDate(string $value): DateTimeImmutable

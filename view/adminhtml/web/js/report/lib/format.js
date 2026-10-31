@@ -48,8 +48,8 @@ define([], function () {
     }
 
     /**
-     * Formats a date bucket key with the locale default date format, building a local-calendar
-     * date from its parts (never parse the string as UTC).
+     * Formats a date bucket key (store-local wall-clock) with the locale default date format.
+     * The parts are formatted as UTC so the browser timezone and its DST never shift the label.
      *
      * @param {String} value
      * @param {String} [locale]
@@ -61,6 +61,7 @@ define([], function () {
                 return candidate.regex.test(text);
             }),
             parts,
+            options,
             date;
 
         if (!pattern) {
@@ -68,11 +69,12 @@ define([], function () {
         }
 
         parts = pattern.regex.exec(text).slice(1).map(Number);
-        date = new Date(parts[0], parts[1] - 1, parts[2] || 1, parts[3] || 0, parts[4] || 0);
+        date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] || 1, parts[3] || 0, parts[4] || 0));
+        options = Object.assign({timeZone: 'UTC'}, pattern.options);
         try {
-            return date.toLocaleString(normalizeLocale(locale), pattern.options);
+            return date.toLocaleString(normalizeLocale(locale), options);
         } catch (e) {
-            return date.toLocaleString(undefined, pattern.options);
+            return date.toLocaleString(undefined, options);
         }
     }
 

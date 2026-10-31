@@ -7,6 +7,7 @@ namespace MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression;
 use InvalidArgumentException;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -17,6 +18,10 @@ class FirstShipmentWaitExpression implements FieldExpressionProviderInterface
     private const string TEMPLATE = '(SELECT GREATEST(0, TIMESTAMPDIFF(SECOND, %1$s.created_at, MIN(sh.created_at)))'
         . ' / 86400 FROM %2$s AS sh WHERE sh.order_id = %1$s.entity_id)';
 
+    public function __construct(private readonly ReportConnection $reportConnection)
+    {
+    }
+
     /**
      * @inheritDoc
      */
@@ -25,7 +30,7 @@ class FirstShipmentWaitExpression implements FieldExpressionProviderInterface
         return \sprintf(
             self::TEMPLATE,
             $this->getOrderAlias($dataset),
-            $connection->getTableName('sales_shipment')
+            $this->reportConnection->getTableName('sales_shipment')
         );
     }
 

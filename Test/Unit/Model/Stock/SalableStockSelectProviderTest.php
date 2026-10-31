@@ -79,6 +79,18 @@ final class SalableStockSelectProviderTest extends TestCase
         $this->assertStringContainsString('ELSE 0 END AS `salable_qty`', $sql);
     }
 
+    public function testItSelectsFromPrefixedStockIndexReservationAndInventoryStockTablesInTheSalableStockSelect(): void
+    {
+        $sql = $this->sql([1, 2], ['pfx_inventory_stock_2'], '0', 'pfx_');
+
+        $this->assertStringContainsString('FROM `pfx_inventory_stock_1`', $sql);
+        $this->assertStringContainsString('FROM `pfx_inventory_stock_2`', $sql);
+        $this->assertStringContainsString('FROM `pfx_inventory_reservation`', $sql);
+        $this->assertStringContainsString('INNER JOIN `pfx_catalog_product_entity` AS `e`', $sql);
+        $this->assertStringContainsString('LEFT JOIN `pfx_cataloginventory_stock_item` AS `si`', $sql);
+        $this->assertStringContainsString('FROM `pfx_inventory_stock`', $this->sql([], [], '0', 'pfx_'));
+    }
+
     public function testItExcludesCompositeProductTypes(): void
     {
         $this->assertStringContainsString(
@@ -110,6 +122,7 @@ final class SalableStockSelectProviderTest extends TestCase
             }
         );
         $provider = new SalableStockSelectProvider(
+            $this->createReportConnection(),
             $this->createStub(ScopeConfigInterface::class),
             $this->hintingGuardrails(),
         );
@@ -132,8 +145,12 @@ final class SalableStockSelectProviderTest extends TestCase
      * @param int[] $stockIds
      * @param string[] $existingTables
      */
-    private function sql(array $stockIds, array $existingTables = [], string $minQty = '0'): string
-    {
+    private function sql(
+        array $stockIds,
+        array $existingTables = [],
+        string $minQty = '0',
+        string $tablePrefix = ''
+    ): string {
         $adapter = $this->createSqlAdapter();
         $adapter->method('fetchCol')->willReturn($stockIds);
         $adapter->method('isTableExists')->willReturnCallback(
@@ -141,7 +158,12 @@ final class SalableStockSelectProviderTest extends TestCase
         );
         $config = $this->createStub(ScopeConfigInterface::class);
         $config->method('getValue')->willReturn($minQty);
-        $provider = new SalableStockSelectProvider($config, $this->hintingGuardrails(), ['configurable', 'bundle', 'grouped']);
+        $provider = new SalableStockSelectProvider(
+            $this->createReportConnection($tablePrefix),
+            $config,
+            $this->hintingGuardrails(),
+            ['configurable', 'bundle', 'grouped']
+        );
 
         return $this->normalizeSql($provider->getSelect($adapter, $this->dataset()));
     }

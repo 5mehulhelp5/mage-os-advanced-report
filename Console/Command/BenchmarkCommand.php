@@ -562,7 +562,7 @@ class BenchmarkCommand extends Command
     private function countRows(string $table): int
     {
         $connection = $this->reportConnection->get();
-        $sql = 'SELECT COUNT(*) FROM ' . $connection->getTableName($table);
+        $sql = 'SELECT COUNT(*) FROM ' . $this->reportConnection->getTableName($table);
 
         return (int) $connection->fetchOne($this->guardrails->applyTimeout($sql));
     }

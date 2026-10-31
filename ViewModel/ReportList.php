@@ -58,7 +58,7 @@ class ReportList implements ArgumentInterface
     {
         $areas = [];
         foreach ($this->registry->getPresets() as $preset) {
-            if (!$this->isDatasetAllowed($preset->dataset)) {
+            if (!$this->isDatasetAllowed($preset->dataset) || !$this->datasetAccess->isPresetAllowed($preset)) {
                 continue;
             }
             $areas[$preset->area] ??= $this->emptyArea($preset->area);

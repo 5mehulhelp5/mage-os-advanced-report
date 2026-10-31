@@ -7,11 +7,12 @@ namespace MageOS\AdvancedReport\Model\Query;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Api\Data\WebsiteInterface;
 use Magento\Store\Model\ScopeInterface;
+use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
- * Resolves and compares the base currency (`currency/options/base`, website scope) of the
+ * Resolves and compares the base currency (`currency/options/base`, website scope when the catalog price scope is website, default scope otherwise) of the
  * websites a report request is scoped to, so {@see ReportResult} can report a single
  * `currency_code` and {@see RequestValidator} can reject monetary requests whose stores mix
  * currencies.
@@ -103,10 +104,22 @@ class BaseCurrencyChecker
 
     private function currencyForWebsite(int $websiteId): string
     {
+        if (!$this->isWebsitePriceScope()) {
+            return (string) $this->scopeConfig->getValue(self::XML_PATH_BASE_CURRENCY);
+        }
+
         return (string) $this->scopeConfig->getValue(
             self::XML_PATH_BASE_CURRENCY,
             ScopeInterface::SCOPE_WEBSITE,
             $websiteId,
         );
+    }
+
+    /**
+     * With the global catalog price scope the core ignores website base currency values.
+     */
+    private function isWebsitePriceScope(): bool
+    {
+        return (int) $this->scopeConfig->getValue(Store::XML_PATH_PRICE_SCOPE) === Store::PRICE_SCOPE_WEBSITE;
     }
 }

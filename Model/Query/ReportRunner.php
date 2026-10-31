@@ -62,6 +62,7 @@ class ReportRunner implements ReportRunnerInterface
         private readonly AclContext $aclContext,
         private readonly ResultCacheLock $resultCacheLock,
         private readonly ResultConfigFingerprint $resultConfigFingerprint,
+        private readonly QuoteRetention $quoteRetention,
         private readonly array $timeRelativeDatasets = [],
     ) {
     }
@@ -72,10 +73,11 @@ class ReportRunner implements ReportRunnerInterface
         $dataset = $this->definitionRegistry->getDataset($request->getDataset());
         $execution = $this->resolveExecution($dataset, $request);
 
-        $cacheKey = $this->buildCacheKey($request, $plan, $execution['sourceCode']);
+        $retention = $this->quoteRetention->window($dataset, $request->getStoreIds());
+        $cacheKey = $this->buildCacheKey($request, $plan, $execution['sourceCode'], $retention);
 
-        $computeAndSave = function () use ($request, $dataset, $plan, $execution, $cacheKey): ReportResultInterface {
-            $result = $this->execute($request, $dataset, $plan, $execution);
+        $computeAndSave = function () use ($request, $dataset, $plan, $execution, $cacheKey, $retention): ReportResultInterface {
+            $result = $this->execute($request, $dataset, $plan, $execution, $retention);
             $this->resultCache->save($cacheKey, $this->toCachePayload($result), $this->isOpenPeriod($plan));
 
             return $result;
@@ -103,6 +105,7 @@ class ReportRunner implements ReportRunnerInterface
         Dataset $dataset,
         array $plan,
         array $execution,
+        ?QuoteRetentionWindow $retention,
     ): ReportResultInterface {
         $mainQuery = $plan['main'];
         $comparisonQuery = $plan['comparison'];
@@ -155,7 +158,15 @@ class ReportRunner implements ReportRunnerInterface
         $costCoverage = $needsCostCoverage ? $this->toFloat($computed['totals']['cost_coverage'] ?? null) : null;
         $warnings = array_values(array_unique([
             ...$mainRaw->warnings,
-            ...$this->warningsCollector->collect($dataset, $request, $requestedMetrics, $costCoverage),
+            ...$this->warningsCollector->collect(
+                $dataset,
+                $request,
+                $requestedMetrics,
+                $costCoverage,
+                $retention,
+                $mainQuery->dateRange,
+                $comparisonQuery?->dateRange,
+            ),
         ]));
 
         $rows = $computed['rows'];
@@ -285,8 +296,12 @@ class ReportRunner implements ReportRunnerInterface
     /**
      * @param array{main: ResolvedQuery, comparison: ?ResolvedQuery} $plan
      */
-    private function buildCacheKey(ReportRequestInterface $request, array $plan, string $sourceCode): string
-    {
+    private function buildCacheKey(
+        ReportRequestInterface $request,
+        array $plan,
+        string $sourceCode,
+        ?QuoteRetentionWindow $retention,
+    ): string {
         return $this->resultCache->buildKey(
             $request,
             $sourceCode,
@@ -299,7 +314,10 @@ class ReportRunner implements ReportRunnerInterface
             $this->localeResolver->getLocale(),
             $this->aclContext->getFingerprint(),
             $this->buildScopeContext($request, $plan['main']->scope),
-            $this->resultConfigFingerprint->get(),
+            [
+                ...$this->resultConfigFingerprint->get(),
+                ...($retention === null ? [] : ['quoteRetentionCutoff' => $retention->cutoff->format('Y-m-d')]),
+            ],
         );
     }
 

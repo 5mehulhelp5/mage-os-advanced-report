@@ -52,6 +52,8 @@ final class RequestValidatorTest extends TestCase
     private const string TODAY = '2026-03-15';
     private const string ACL_SALES = 'MageOS_AdvancedReport::sales';
     private const string ACL_CONFIG = 'MageOS_AdvancedReport::config';
+    private const string ACL_ORDER_VIEW = 'Magento_Sales::actions_view';
+    private const string ACL_CUSTOMER_MANAGE = 'Magento_Customer::manage';
 
     private DefinitionRegistry&Stub $definitionRegistry;
     private AuthorizationInterface&Stub $authorization;
@@ -241,6 +243,83 @@ final class RequestValidatorTest extends TestCase
         return self::buildRequest(filters: $filters);
     }
 
+    /**
+     * @return array<string,array{0:ReportRequest}>
+     */
+    public static function gatedSelectionProvider(): array
+    {
+        return [
+            'dimension' => [self::requestWithDimensions([new DimensionSelection('birth_year')])],
+            'filter' => [self::requestWithFilters([new FilterCondition('birth_year', FilterOperator::EQ, 1980)])],
+            'sort by a gated dimension' => [self::buildRequest(
+                dimensions: [new DimensionSelection('birth_year')],
+                sort: [new SortOrder('birth_year')],
+            )],
+            'aggregate metric on a gated field' => [self::requestWithMetrics(['birth_total'])],
+            'derived metric built on a gated metric' => [self::requestWithMetrics(['orders', 'birth_ratio'])],
+        ];
+    }
+
+    #[DataProvider('gatedSelectionProvider')]
+    public function testItRejectsAGatedFieldSelectionWithoutTheFieldAcl(ReportRequest $request): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->expectException(AuthorizationException::class);
+        $this->expectExceptionMessage(self::ACL_ORDER_VIEW);
+
+        $this->validatorDenying(self::ACL_ORDER_VIEW)->validate($request);
+    }
+
+    public function testItAllowsBirthAndGenderDimensionsWithOrderView(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->validatorDenying('Some_Other::resource')->validate(
+            self::requestWithDimensions([new DimensionSelection('birth_year'), new DimensionSelection('gender')])
+        );
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testItDoesNotCheckTheFieldAclWhenTheAclCheckIsSkipped(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+
+        $this->validatorDenying(self::ACL_ORDER_VIEW)->validate(
+            self::requestWithDimensions([new DimensionSelection('birth_year')]),
+            false
+        );
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testItRejectsBirthAndGenderDimensionsOfTheCustomersDatasetWithoutCustomerManage(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::customersDataset());
+
+        $this->expectException(AuthorizationException::class);
+        $this->expectExceptionMessage(self::ACL_CUSTOMER_MANAGE);
+
+        $this->validatorDenying(self::ACL_CUSTOMER_MANAGE)->validate(
+            self::buildRequest(
+                dataset: 'customers',
+                metricCodes: ['customers'],
+                dimensions: [new DimensionSelection('gender')],
+            )
+        );
+    }
+
+    private function validatorDenying(string $deniedResource): RequestValidator
+    {
+        $authorization = $this->createStub(AuthorizationInterface::class);
+        $authorization->method('isAllowed')->willReturnCallback(
+            static fn (string $resource): bool => $resource !== $deniedResource
+        );
+
+        return $this->buildValidator($this->definitionRegistry, $authorization, $this->config);
+    }
+
     public function testItRejectsLimitsAboveMaxRows(): void
     {
         $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
@@ -351,6 +430,35 @@ final class RequestValidatorTest extends TestCase
         $this->expectException(InvalidRequestException::class);
 
         $this->validator->validate(self::buildRequest(preset: 'stock'));
+    }
+
+    public function testItRejectsAPresetWhoseExtraDatasetTheAdminCannotRead(): void
+    {
+        $preset = self::preset('dead_stock', 'sales_orders', null);
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->definitionRegistry->method('getPreset')->willReturn($preset);
+        $datasetAccess = $this->createMock(DatasetAccess::class);
+        $datasetAccess->expects(self::once())->method('assertPresetAllowed')->with($preset)->willThrowException(
+            new AuthorizationException(new Phrase('denied'))
+        );
+        $validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config, $datasetAccess);
+
+        $this->expectException(AuthorizationException::class);
+
+        $validator->validate(self::buildRequest(preset: 'dead_stock'));
+    }
+
+    public function testItSkipsThePresetDatasetAccessWhenAclCheckingIsDisabled(): void
+    {
+        $this->definitionRegistry->method('getDataset')->willReturn(self::salesOrdersDataset());
+        $this->definitionRegistry->method('getPreset')->willReturn(self::preset('dead_stock', 'sales_orders', null));
+        $datasetAccess = $this->createMock(DatasetAccess::class);
+        $datasetAccess->expects(self::never())->method('assertPresetAllowed');
+        $validator = $this->buildValidator($this->definitionRegistry, $this->authorization, $this->config, $datasetAccess);
+
+        $validator->validate(self::buildRequest(preset: 'dead_stock'), checkAcl: false);
+
+        $this->addToAssertionCount(1);
     }
 
     /**
@@ -755,6 +863,12 @@ final class RequestValidatorTest extends TestCase
             'is_first_order' => new Field('is_first_order', 'Is first order', FieldType::BOOLEAN, [
                 'mysql' => new SourceMapping(expressionProvider: 'first_order'),
             ]),
+            'birth_year' => new Field('birth_year', 'Year of birth', FieldType::INTEGER, [
+                'mysql' => new SourceMapping(expression: 'YEAR(main.customer_dob)'),
+            ], acl: self::ACL_ORDER_VIEW),
+            'gender' => new Field('gender', 'Gender', FieldType::ID, [
+                'mysql' => new SourceMapping(expression: 'main.customer_gender'),
+            ], acl: self::ACL_ORDER_VIEW),
         ];
 
         if ($withStoreField) {
@@ -804,6 +918,25 @@ final class RequestValidatorTest extends TestCase
                 aggregate: AggregateFunction::SUM,
                 fieldCode: 'is_first_order',
             ),
+            'birth_total' => new Metric(
+                code: 'birth_total',
+                label: 'Birth total',
+                description: null,
+                format: 'number',
+                hidden: false,
+                lowerIsBetter: false,
+                aggregate: AggregateFunction::SUM,
+                fieldCode: 'birth_year',
+            ),
+            'birth_ratio' => new Metric(
+                code: 'birth_ratio',
+                label: 'Birth ratio',
+                description: null,
+                format: 'number',
+                hidden: false,
+                lowerIsBetter: false,
+                formula: 'birth_total / orders',
+            ),
             'coverage_days' => new Metric(
                 code: 'coverage_days',
                 label: 'Coverage days',
@@ -823,6 +956,8 @@ final class RequestValidatorTest extends TestCase
                 granularities: [Granularity::HOUR, Granularity::DAY, Granularity::WEEK, Granularity::MONTH, Granularity::YEAR],
             ),
             'channel' => new Dimension(code: 'channel', label: 'Channel', fieldCode: 'channel'),
+            'birth_year' => new Dimension(code: 'birth_year', label: 'Year of birth', fieldCode: 'birth_year'),
+            'gender' => new Dimension(code: 'gender', label: 'Gender', fieldCode: 'gender'),
             'customer_type' => new Dimension(code: 'customer_type', label: 'Customer type', fieldCode: 'is_first_order'),
             'order_month' => new Dimension(
                 code: 'order_month',
@@ -846,6 +981,45 @@ final class RequestValidatorTest extends TestCase
             joins: [],
             metrics: $metrics,
             dimensions: $dimensions,
+        );
+    }
+
+    private static function customersDataset(): Dataset
+    {
+        return new Dataset(
+            code: 'customers',
+            label: 'Customers',
+            aclResource: 'MageOS_AdvancedReport::customers',
+            area: 'customers',
+            dateless: false,
+            baseTable: 'customer_entity',
+            baseAlias: 'main',
+            baseProvider: null,
+            implicitFilters: [],
+            fields: [
+                'customer_id' => new Field('customer_id', 'Customer', FieldType::ID, [
+                    'mysql' => new SourceMapping(expression: 'main.entity_id'),
+                ]),
+                'gender' => new Field('gender', 'Gender', FieldType::ID, [
+                    'mysql' => new SourceMapping(expression: 'main.gender'),
+                ], acl: self::ACL_CUSTOMER_MANAGE),
+            ],
+            joins: [],
+            metrics: [
+                'customers' => new Metric(
+                    code: 'customers',
+                    label: 'Customers',
+                    description: null,
+                    format: 'integer',
+                    hidden: false,
+                    lowerIsBetter: false,
+                    aggregate: AggregateFunction::COUNT,
+                    fieldCode: 'customer_id',
+                ),
+            ],
+            dimensions: [
+                'gender' => new Dimension(code: 'gender', label: 'Gender', fieldCode: 'gender'),
+            ],
         );
     }
 }

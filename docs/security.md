@@ -17,7 +17,7 @@ report. `Data`, `Export`, `Save` and `Delete` are POST-only (CSRF form key).
 | `Controller/Adminhtml/Report/Data` | `MageOS_AdvancedReport::reports` | Dataset ACL + core ACL (HTTP 403 JSON); request validation (HTTP 400); sanitized logging | `testItReturns403FromDataWithoutTheDatasetCorePermission`, `RunnerAuthorizationTest` |
 | `Controller/Adminhtml/Report/Export` | `MageOS_AdvancedReport::export` | Dataset ACL + core ACL: no CSV, redirect to the index with a generic error; without `export` the framework answers 403 | `testItDoesNotExportAReportWithoutTheDatasetCorePermission`, `testItDeniesExportWithA403PageWithoutTheExportPermission` |
 | `Controller/Adminhtml/Report/Save` | `MageOS_AdvancedReport::saved_manage` | Sharing needs `MageOS_AdvancedReport::saved_share` (403); dataset ACL + core ACL of the saved definition (403); only the owner can modify | `testItReturns403WhenSavingAReportWithoutTheDatasetCorePermission`, `testItReturns403WhenSharingWithoutTheSharePermission` |
-| `Controller/Adminhtml/Report/Delete` | `MageOS_AdvancedReport::saved_manage` | Only the owner can delete (403). An owner who lost the dataset permission no longer sees nor can delete the saved report: accepted | `testItForbidsDeletingASavedReportOwnedByAnotherAdmin` |
+| `Controller/Adminhtml/Report/Delete` | `MageOS_AdvancedReport::saved_manage` | Only the owner can delete (403). An owner who lost the dataset permission no longer sees the saved report in the list, but can still delete it by id: harmless (it only removes their own saved definition, no data is read), so there is no dataset check on delete | `testItForbidsDeletingASavedReportOwnedByAnotherAdmin` |
 | `advanced-report:explain` (`Console/Command/ExplainCommand`) | none (trusted CLI) | Shell access is the trust boundary. A preset query (`LowStockCoverageQuery`) still runs its inner report with ACL checks and no admin session (pre-existing) | unit tests |
 | `advanced-report:inventory` (`Console/Command/InventoryCommand`) | none (trusted CLI) | Reads definitions only, no data | unit tests |
 
@@ -46,7 +46,11 @@ A dataset is readable only when **both** gates pass (`Model/Security/DatasetAcce
 Consequences:
 
 - Presets and saved reports of an inaccessible dataset are hidden from the list and metadata, and opening them is a not
-  found redirect; running them is refused (403).
+  found redirect; running them is refused (403). An owner who lost the dataset permission can still delete their own saved
+  report (harmless, nothing is read).
+- The `dead_stock` and `never_sold` presets sit on the `catalog_stock` dataset but read order items, so they additionally
+  require the `sales_items` permission (`DatasetAccess` `presetDatasets`). Without it they are hidden from the preset list
+  and the initial state, and running them is refused with the same 403.
 - `LowStockCoverageQuery` runs an inner sales query gated by `sales_items`; without that permission it runs without sales data.
 - A dataset without a `coreResources` mapping (for example added by an extender) is gated by its module ACL only.
   Extenders add a mapping in their `di.xml`:
@@ -79,6 +83,23 @@ Consequences:
 Order-level datasets (`sales_orders`, `customer_orders`, `sales_items`) follow `Magento_Sales::sales_order`, as the core
 order view does; `customers` requires `Magento_Customer::manage`. Exports go through the same checks and need `export` too.
 
+## Field level ACL
+
+A field can declare an optional `acl` attribute in `etc/report_datasets.xml`, a resource that must be granted on top of the
+dataset gates. It is used for personal data: `birth_year`, `birth_month`, `birth_weekday` and `gender` need
+`Magento_Sales::actions_view` on `sales_orders` and `customer_orders` (the core permission to open an order, as the order
+view shows the customer date of birth and gender), and `Magento_Customer::manage` on `customers`. Notes:
+
+- The server enforces it in `RequestValidator` (403-class refusal) for fields used as a filter, a dimension or a metric
+  input (aggregate field, condition field and the fields of derived formulas); sort is covered because a sort target must
+  be a selected metric or dimension.
+- The explorer hides the gated fields and dimensions from admins who lack the resource (`ViewModel/Exploration`).
+- Every declared field ACL is part of the `AclContext` fingerprint, so roles that differ only in a field permission never
+  share a cached result.
+- A field ACL that is not declared in the ACL tree is rejected when the definitions are validated.
+- `sales_order` is the permission of the order grid, so a role with only `Magento_Sales::sales_order` reads the order
+  datasets but no longer sees birth or gender fields.
+
 ## User values to SQL
 
 Request JSON -> `ReportRequestFactory` (typed parsing, only `InvalidRequestException` on malformed shapes) ->
@@ -96,6 +117,12 @@ module ACL, every declared core ACL (`DatasetAccess::getResources()`) and `MageO
 on each call (no memoization), so admins with different permissions never share a cached result, and a permission change
 takes effect immediately. Authorization is checked before the cache lookup.
 
+## CSV export
+
+Cell values that start with a formula character (`=`, `+`, `-`, `@`, tab or carriage return) are neutralized with a
+leading apostrophe so that spreadsheets do not run them. The header row goes through the same neutralization (labels are
+translatable and extender supplied). Numeric cells are written as they are, including negative numbers.
+
 ## Logging
 
 `Model/Security/ErrorLogger` replaces direct `LoggerInterface` use in controllers and the saved report repository. In
@@ -107,7 +134,7 @@ messages.
 ## Upgrade notes
 
 Roles that only have a module ACL (for example `MageOS_AdvancedReport::sales`) lose the datasets until the matching core
-ACL is granted. After deploying, regenerate `generated/code/MageOS/AdvancedReport` (controller constructors changed):
+ACL is granted. Birth and gender fields of the order datasets now need `Magento_Sales::actions_view` too. After deploying, regenerate `generated/code/MageOS/AdvancedReport` (controller constructors changed):
 `setup:di:compile` in production, or clear `generated/` in developer mode.
 
 ## Trusted CLI authorization (benchmark)

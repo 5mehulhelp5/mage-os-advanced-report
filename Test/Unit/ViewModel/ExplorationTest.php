@@ -42,6 +42,22 @@ final class ExplorationTest extends TestCase
         self::assertSame(['eq', 'neq', 'in', 'nin'], $dataset['filters'][0]['operators']);
     }
 
+    public function testItHidesGatedFieldsAndDimensionsFromTheReportCatalogueWithoutTheFieldAcl(): void
+    {
+        $dataset = $this->config(['MageOS_AdvancedReport::sales'])['datasets'][0];
+
+        self::assertSame(['status'], array_column($dataset['filters'], 'code'));
+        self::assertSame(['created'], array_column($dataset['dimensions'], 'code'));
+    }
+
+    public function testItShowsGatedFieldsAndDimensionsWithTheFieldAcl(): void
+    {
+        $dataset = $this->config(['MageOS_AdvancedReport::sales', 'Magento_Sales::actions_view'])['datasets'][0];
+
+        self::assertSame(['status', 'birth_year'], array_column($dataset['filters'], 'code'));
+        self::assertSame(['created', 'birth_year'], array_column($dataset['dimensions'], 'code'));
+    }
+
     public function testItOmitsADatasetWhoseCoreResourceIsDeniedFromTheExplorationMetadata(): void
     {
         $config = json_decode(
@@ -232,14 +248,27 @@ final class ExplorationTest extends TestCase
             null,
             null,
             [],
-            ['status' => new Field('status', 'Status', FieldType::STRING)],
+            [
+                'status' => new Field('status', 'Status', FieldType::STRING),
+                'birth_year' => new Field(
+                    'birth_year',
+                    'Year of birth',
+                    FieldType::INTEGER,
+                    [],
+                    null,
+                    'Magento_Sales::actions_view'
+                ),
+            ],
             [],
             [
                 'net_sales' => new Metric('net_sales', 'Net', null, 'money', false, false, AggregateFunction::SUM),
                 'hid' => new Metric('hid', 'Hid', null, 'money', true, false, AggregateFunction::SUM),
                 'virt' => new Metric('virt', 'Virt', null, 'number', false, false, null, null, null, null, true),
             ],
-            ['created' => new Dimension('created', 'Created', 'created_at', [Granularity::DAY])],
+            [
+                'created' => new Dimension('created', 'Created', 'created_at', [Granularity::DAY]),
+                'birth_year' => new Dimension('birth_year', 'Year of birth', 'birth_year'),
+            ],
         );
         $stock = new Dataset(
             'catalog_stock',
@@ -276,6 +305,9 @@ final class ExplorationTest extends TestCase
         $datasetAccess->method('isAllowed')->willReturnCallback(
             static fn (Dataset $dataset): bool => \in_array($dataset->aclResource, $allowed, true)
                 && !\in_array($dataset->code, $deniedDatasets, true)
+        );
+        $datasetAccess->method('isFieldAllowed')->willReturnCallback(
+            static fn (Field $field): bool => $field->acl === null || \in_array($field->acl, $allowed, true)
         );
         $url = $this->createStub(UrlInterface::class);
         $url->method('getUrl')->willReturnCallback(

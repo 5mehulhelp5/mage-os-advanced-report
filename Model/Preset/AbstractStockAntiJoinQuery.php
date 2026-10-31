@@ -10,8 +10,10 @@ use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\PresetQueryInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CountedStatusCondition;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\UserFilterBuilder;
 use MageOS\AdvancedReport\Model\Label\DimensionLabelApplier;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
@@ -20,7 +22,7 @@ use MageOS\AdvancedReport\Model\Stock\StockSelectProvider;
 
 /**
  * Catalog presets built on an anti-join over order items: one row per SKU taken from the stock
- * base select (aliased "s"), narrowed by a subclass specific predicate.
+ * base select (aliased "main", like the `catalog_stock` field expressions), narrowed by a subclass specific predicate.
  *
  * Output columns: `sku` (dimension), `qty_on_hand`, `stock_value_cost` and the subclass extras.
  * Guardrails (row cap, execution timeout, timeout mapping) are the same as the MySQL data source.
@@ -37,6 +39,8 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
         protected readonly Guardrails $guardrails,
         protected readonly CountedStatusCondition $countedStatusCondition,
         protected readonly DimensionLabelApplier $dimensionLabelApplier,
+        private readonly FieldExpressionResolver $fieldExpressionResolver,
+        private readonly UserFilterBuilder $userFilterBuilder,
     ) {
     }
 
@@ -95,20 +99,26 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
     }
 
     /**
-     * Adds the preset specific conditions on the stock select aliased "s".
+     * Adds the preset specific conditions on the stock select aliased "main".
      *
      * @param AdapterInterface $connection
      * @param Select $select
+     * @param ResolvedQuery $resolvedQuery
      */
-    abstract protected function applyPredicate(AdapterInterface $connection, Select $select): void;
+    abstract protected function applyPredicate(
+        AdapterInterface $connection,
+        Select $select,
+        ResolvedQuery $resolvedQuery
+    ): void;
 
     /**
      * Additional output columns (alias => expression) beyond sku and the stock metrics.
      *
      * @param AdapterInterface $connection
+     * @param ResolvedQuery $resolvedQuery
      * @return array<string,string>
      */
-    protected function getExtraColumns(AdapterInterface $connection): array
+    protected function getExtraColumns(AdapterInterface $connection, ResolvedQuery $resolvedQuery): array
     {
         return [];
     }
@@ -119,14 +129,24 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
      * @param AdapterInterface $connection
      * @param string $columns
      * @param bool $withOrders Whether the items are joined to their orders (filterable by date/status).
+     *                         Orders are always joined when the request selects stores.
+     * @param ResolvedQuery $resolvedQuery
      */
-    protected function orderItemsOf(AdapterInterface $connection, string $columns, bool $withOrders): string
-    {
-        $items = $connection->getTableName('sales_order_item');
-        $orders = $connection->getTableName('sales_order');
+    protected function orderItemsOf(
+        AdapterInterface $connection,
+        string $columns,
+        bool $withOrders,
+        ResolvedQuery $resolvedQuery
+    ): string {
+        $storeIds = $resolvedQuery->storeIds;
+        $withOrders = $withOrders || $storeIds !== [];
+        $items = $this->reportConnection->getTableName('sales_order_item');
+        $orders = $this->reportConnection->getTableName('sales_order');
         $from = $withOrders ? \sprintf('%s AS i JOIN %s AS o ON o.entity_id = i.order_id', $items, $orders) : $items . ' AS i';
 
-        return \sprintf('SELECT %s FROM %s WHERE i.product_id = s.product_id', $columns, $from);
+        $sql = \sprintf('SELECT %s FROM %s WHERE i.product_id = main.product_id', $columns, $from);
+
+        return $storeIds === [] ? $sql : $sql . $connection->quoteInto(' AND o.store_id IN (?)', $storeIds);
     }
 
     private function getConnection(): AdapterInterface
@@ -138,24 +158,33 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
     {
         $select = $connection->select();
         $select->from(
-            ['s' => new \Zend_Db_Expr('(' . $this->stockSelectProvider->getSelect($connection, $resolvedQuery->dataset) . ')')],
+            ['main' => new \Zend_Db_Expr('(' . $this->stockSelectProvider->getSelect($connection, $resolvedQuery->dataset) . ')')],
             [
-                'sku' => 's.sku',
-                'qty_on_hand' => 'SUM(s.qty)',
-                'stock_value_cost' => 'SUM(s.qty * COALESCE(s.cost, 0))',
+                'sku' => 'main.sku',
+                'qty_on_hand' => 'SUM(main.qty)',
+                'stock_value_cost' => 'SUM(main.qty * COALESCE(main.cost, 0))',
             ]
         );
         if ($this->hasProductDimension($resolvedQuery)) {
-            $select->columns([self::PRODUCT_DIMENSION => 's.product_id']);
+            $select->columns([self::PRODUCT_DIMENSION => 'main.product_id']);
         }
         $select->columns(array_map(
             static fn (string $expression): \Zend_Db_Expr => new \Zend_Db_Expr($expression),
-            $this->getExtraColumns($connection)
+            $this->getExtraColumns($connection, $resolvedQuery)
         ));
-        $select->group(['s.product_id', 's.sku']);
-        $this->applyPredicate($connection, $select);
+        $select->group(['main.product_id', 'main.sku']);
+        $this->applyFilters($connection, $select, $resolvedQuery);
+        $this->applyPredicate($connection, $select, $resolvedQuery);
 
         return $select;
+    }
+
+    private function applyFilters(AdapterInterface $connection, Select $select, ResolvedQuery $resolvedQuery): void
+    {
+        foreach ($resolvedQuery->filters as $filter) {
+            $expression = $this->fieldExpressionResolver->resolve($resolvedQuery->dataset, $filter->field, $connection);
+            $select->where($this->userFilterBuilder->build($filter, $expression, $connection));
+        }
     }
 
     private function totalsSelect(AdapterInterface $connection, Select $inner): Select
@@ -207,7 +236,7 @@ abstract class AbstractStockAntiJoinQuery implements PresetQueryInterface
 
     private function applySort(Select $select, ResolvedQuery $resolvedQuery, AdapterInterface $connection): void
     {
-        $allowed = ['sku', 'qty_on_hand', 'stock_value_cost', ...array_keys($this->getExtraColumns($connection))];
+        $allowed = ['sku', 'qty_on_hand', 'stock_value_cost', ...array_keys($this->getExtraColumns($connection, $resolvedQuery))];
         if ($this->hasProductDimension($resolvedQuery)) {
             $allowed[] = self::PRODUCT_DIMENSION;
         }

@@ -11,9 +11,10 @@ use MageOS\AdvancedReport\Model\Cache\Type;
 
 /**
  * Cleans the `advanced_report` cache type whenever the module's own
- * configuration section is saved, covering settings that change results
- * without being part of the result cache key (report attributes, dead stock
- * days, counted statuses, connection).
+ * configuration section is saved. Result-changing settings (report attributes,
+ * dead stock days, counted statuses, connection) are already part of the result
+ * cache key (`ResultCache::buildKey()`, `ResultConfigFingerprint`), so this only
+ * frees entries that would otherwise linger until their TTL.
  */
 class CleanReportCacheObserver implements ObserverInterface
 {

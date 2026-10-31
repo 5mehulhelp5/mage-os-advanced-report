@@ -43,6 +43,7 @@ final class ConverterTest extends TestCase
                         'label' => 'Grand Total',
                         'type' => 'money',
                         'description' => null,
+                        'acl' => null,
                         'sourceMappings' => [
                             'mysql' => [
                                 'expression' => 'main.base_grand_total',
@@ -87,6 +88,15 @@ final class ConverterTest extends TestCase
         $result = (new Converter())->convert($this->loadFixture('join_cardinality_many.xml'));
 
         self::assertSame('many', $result['datasets']['sales_items']['joins']['category']['cardinality']);
+    }
+
+    public function testItParsesAnOptionalAclAttributeOnFields(): void
+    {
+        $result = (new Converter())->convert($this->loadFixture('field_acl.xml'));
+
+        $fields = $result['datasets']['sales_orders']['fields'];
+        self::assertSame('Magento_Sales::actions_view', $fields['birth_year']['acl']);
+        self::assertNull($fields['status']['acl']);
     }
 
     public function testItDefaultsJoinCardinalityToOneWhenAttributeIsMissing(): void

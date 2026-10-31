@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Definition;
 
+use Magento\Framework\Acl\AclResource\ProviderInterface;
 use Magento\Framework\App\State;
 use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ImplicitFilterPool;
@@ -30,13 +31,18 @@ use Psr\Log\LoggerInterface;
  */
 class DefinitionValidator
 {
+    /** @var array<string,true>|null */
+    private ?array $declaredAclIds = null;
+
     /**
      * @param State $appState
      * @param LoggerInterface $logger
+     * @param ProviderInterface $aclResourceProvider
      */
     public function __construct(
         private readonly State $appState,
         private readonly LoggerInterface $logger,
+        private readonly ProviderInterface $aclResourceProvider,
     ) {
     }
 
@@ -303,7 +309,41 @@ class DefinitionValidator
             }
         }
 
+        if ($field->acl !== null && !isset($this->getDeclaredAclIds()[$field->acl])) {
+            $errors[] = \sprintf(
+                'Dataset "%s" field "%s" acl "%s" is not a declared ACL resource.',
+                $dataset->code,
+                $field->code,
+                $field->acl
+            );
+        }
+
         return $errors;
+    }
+
+    /**
+     * Every ACL resource id declared by the installed modules, read once.
+     *
+     * @return array<string,true>
+     */
+    private function getDeclaredAclIds(): array
+    {
+        return $this->declaredAclIds ??= $this->collectAclIds($this->aclResourceProvider->getAclResources());
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $nodes
+     * @param array<string,true> $ids
+     * @return array<string,true>
+     */
+    private function collectAclIds(array $nodes, array $ids = []): array
+    {
+        foreach ($nodes as $node) {
+            $ids[(string) $node['id']] = true;
+            $ids = $this->collectAclIds($node['children'] ?? [], $ids);
+        }
+
+        return $ids;
     }
 
     /**

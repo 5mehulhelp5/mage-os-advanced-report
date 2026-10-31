@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
+use DateTimeImmutable;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Dimension;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
+use MageOS\AdvancedReport\Model\Query\QuoteRetentionWindow;
 use MageOS\AdvancedReport\Model\Query\ReportWarningsCollector;
+use MageOS\AdvancedReport\Model\Query\ResolvedDateRange;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -71,6 +74,70 @@ final class ReportWarningsCollectorTest extends TestCase
         $warnings = $this->collector->collect($dataset, $this->buildRequest([]), [], null);
 
         self::assertSame([], $warnings);
+    }
+
+    public function testItWarnsWhenACartReportRangeStartsBeforeTheQuoteLifetimeWindow(): void
+    {
+        $warnings = $this->collect($this->window(30), $this->range('2026-02-01', '2026-03-10'), null);
+
+        self::assertSame(
+            ['Carts not updated for more than 30 days are deleted by Magento '
+                . '(Sales > Checkout > Shopping Cart > Quote Lifetime); results before 2026-02-13 are incomplete.'],
+            $warnings,
+        );
+    }
+
+    public function testItWarnsWhenTheComparisonRangeStartsBeforeTheQuoteLifetimeWindow(): void
+    {
+        $warnings = $this->collect(
+            $this->window(30),
+            $this->range('2026-03-01', '2026-03-10'),
+            $this->range('2026-02-01', '2026-02-10'),
+        );
+
+        self::assertCount(1, $warnings);
+    }
+
+    public function testItDoesNotWarnForCartRangesInsideTheQuoteLifetimeWindow(): void
+    {
+        $warnings = $this->collect(
+            $this->window(30),
+            $this->range('2026-02-13', '2026-03-10'),
+            $this->range('2026-02-14', '2026-02-20'),
+        );
+
+        self::assertSame([], $warnings);
+    }
+
+    public function testItDoesNotWarnForDatasetsOutsideTheCartsArea(): void
+    {
+        self::assertSame([], $this->collect(null, $this->range('2020-01-01', '2020-02-01'), null));
+    }
+
+    private function window(int $days): QuoteRetentionWindow
+    {
+        return new QuoteRetentionWindow($days, (new DateTimeImmutable('2026-03-15'))->modify("-$days days"));
+    }
+
+    private function range(string $from, string $to): ResolvedDateRange
+    {
+        return new ResolvedDateRange(new DateTimeImmutable($from), new DateTimeImmutable($to), false, 10);
+    }
+
+    /**
+     * @return string[]
+     */
+    private function collect(?QuoteRetentionWindow $window, ResolvedDateRange $range, ?ResolvedDateRange $comparison): array
+    {
+        return $this->collector->collect(
+            $this->buildDataset(nonAdditive: false),
+            $this->buildRequest([]),
+            [],
+            null,
+            $window,
+            $range,
+            $comparison,
+        );
     }
 
     /**

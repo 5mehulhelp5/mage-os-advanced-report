@@ -20,6 +20,7 @@
         "magento/module-store": "*",
         "magento/module-sales": "*",
         "magento/module-catalog": "*",
+        "magento/module-catalog-inventory": "*",
         "magento/module-customer": "*",
         "magento/module-quote": "*",
         "magento/module-backend": "*",
@@ -32,6 +33,7 @@
         "magento/module-ui": "*"
     },
     "suggest": {
+        "magento/module-checkout": "Provides the checkout/cart/delete_quote_after setting read by the cart reports; the default is used when it is not installed.",
         "magento/module-inventory-api": "Used to read multi-source stock levels for the catalog_stock dataset when MSI is enabled.",
         "magento/module-open-search": "Used as an alternative reporting data source when OpenSearch is enabled."
     },

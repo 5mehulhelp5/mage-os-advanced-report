@@ -123,6 +123,7 @@ class DefinitionFactory
                 type: FieldType::from($data['type']),
                 sourceMappings: $this->createSourceMappings($data['sourceMappings']),
                 description: $data['description'],
+                acl: $data['acl'] ?? null,
             );
         }
 

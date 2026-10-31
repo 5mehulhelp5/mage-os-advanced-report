@@ -301,10 +301,11 @@ final class DerivedRatiosTest extends TestCase
      */
     private function assertItemWithoutCostIsNull(): void
     {
-        $connection = Bootstrap::getObjectManager()->get(ResourceConnection::class)->getConnection();
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $connection = $resource->getConnection();
         $costs = $connection->fetchPairs(
             $connection->select()
-                ->from($connection->getTableName('sales_order_item'), ['sku', 'base_cost'])
+                ->from($resource->getTableName('sales_order_item'), ['sku', 'base_cost'])
                 ->where('sku LIKE ?', 'ar-dr-%')
         );
         $this->assertArrayHasKey('ar-dr-c', $costs);

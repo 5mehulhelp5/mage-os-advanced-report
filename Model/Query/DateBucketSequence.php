@@ -13,8 +13,7 @@ use MageOS\AdvancedReport\Model\Definition\Granularity;
  * {@see ResolvedDateRange}, in the same string formats used by the data sources (hour
  * `Y-m-d H:00`, day `Y-m-d`, week = week start date `Y-m-d`, month `Y-m`, year `Y`).
  *
- * Used by {@see ComparisonMerger} to align week/month/year buckets by ordinal position, and
- * by the date bucket gap filler.
+ * Used by {@see ComparisonMerger} to count the buckets of a range, and by the date bucket gap filler.
  */
 class DateBucketSequence
 {
@@ -126,7 +125,7 @@ class DateBucketSequence
      * Start of the week containing `$date`, aligned to `$firstDayOfWeek`
      * (0 = Sunday ... 6 = Saturday, matching `general/locale/firstday`).
      */
-    private function weekStart(DateTimeImmutable $date, int $firstDayOfWeek): DateTimeImmutable
+    public function weekStart(DateTimeImmutable $date, int $firstDayOfWeek): DateTimeImmutable
     {
         $dayOfWeek = (int) $date->format('w');
         $diff = ($dayOfWeek - $firstDayOfWeek + 7) % 7;

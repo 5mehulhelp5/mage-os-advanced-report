@@ -63,6 +63,14 @@ class ReportConnection
         return $this->adapters[$name] = $adapter;
     }
 
+    /**
+     * Table name with the global `db/table_prefix` applied (the adapter's own getTableName() never adds it).
+     */
+    public function getTableName(string $table): string
+    {
+        return $this->resourceConnection->getTableName($table, $this->config->getConnectionName());
+    }
+
     private function unavailable(string $name, \Throwable $previous): ReportConnectionUnavailableException
     {
         return new ReportConnectionUnavailableException(

@@ -87,6 +87,23 @@ final class ReportListTest extends TestCase
         self::assertSame(['Preset stock'], array_column($areas['catalog']['presets'], 'label'));
     }
 
+    public function testItHidesDeadStockAndNeverSoldFromTheReportListWithoutSalesItemsAccess(): void
+    {
+        $areas = $this->build(
+            [
+                $this->preset('stock', 'catalog', 'catalog_stock'),
+                $this->preset('dead_stock', 'catalog', 'catalog_stock'),
+                $this->preset('never_sold', 'catalog', 'catalog_stock'),
+            ],
+            [],
+            ['MageOS_AdvancedReport::catalog'],
+            [],
+            ['dead_stock', 'never_sold'],
+        )->getAreas();
+
+        self::assertSame(['Preset stock'], array_column($areas['catalog']['presets'], 'label'));
+    }
+
     public function testItListsOwnAndSharedSavedReportsFilteredByDatasetPermission(): void
     {
         $areas = $this->build(
@@ -223,9 +240,15 @@ final class ReportListTest extends TestCase
      * @param SavedReportInterface[] $saved
      * @param string[] $allowed
      * @param string[] $denied dataset codes whose core resource is denied
+     * @param string[] $deniedPresets preset codes whose extra datasets are denied
      */
-    private function build(array $presets, array $saved, array $allowed, array $denied = []): ReportList
-    {
+    private function build(
+        array $presets,
+        array $saved,
+        array $allowed,
+        array $denied = [],
+        array $deniedPresets = [],
+    ): ReportList {
         $datasets = [
             'sales_orders' => 'MageOS_AdvancedReport::sales',
             'sales_items' => 'MageOS_AdvancedReport::sales',
@@ -248,6 +271,9 @@ final class ReportListTest extends TestCase
         $datasetAccess->method('isAllowed')->willReturnCallback(
             static fn (Dataset $dataset): bool => \in_array($dataset->aclResource, $allowed, true)
                 && !\in_array($dataset->code, $denied, true)
+        );
+        $datasetAccess->method('isPresetAllowed')->willReturnCallback(
+            static fn (Preset $preset): bool => !\in_array($preset->code, $deniedPresets, true)
         );
         $user = $this->createStub(User::class);
         $user->method('getId')->willReturn('5');

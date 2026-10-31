@@ -44,9 +44,20 @@ class DateScopeApplier
 
             if ($storeExpression !== null && $this->storeTimezoneMap->hasMultipleTimezones($query->storeIds)) {
                 $exact = [];
+                $mappedStoreIds = [];
                 foreach ($this->storeTimezoneMap->toUtcRangesByTimezone($query->dateRange, $query->storeIds) as $group) {
+                    $mappedStoreIds = [...$mappedStoreIds, ...$group['storeIds']];
                     $exact[] = '(' . $connection->quoteInto($storeExpression . ' IN (?)', $group['storeIds'])
                         . ' AND ' . $this->rangeCondition($createdAt, $group, $connection) . ')';
+                }
+                if ($query->storeIds === []) {
+                    $exact[] = '((' . $storeExpression . ' IS NULL OR '
+                        . $connection->quoteInto($storeExpression . ' NOT IN (?)', $mappedStoreIds) . ')'
+                        . ' AND ' . $this->rangeCondition(
+                            $createdAt,
+                            $this->storeTimezoneMap->toUtcRangeInDefaultTimezone($query->dateRange),
+                            $connection
+                        ) . ')';
                 }
                 $select->where(implode(' OR ', $exact));
             }

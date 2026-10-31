@@ -91,6 +91,47 @@ final class BaseCurrencyCheckerTest extends TestCase
         self::assertSame('', $checker->resolveCurrencyCode($this->buildDataset(true), [1, 2]));
     }
 
+    public function testItUsesTheDefaultBaseCurrencyForEveryWebsiteWhenThePriceScopeIsGlobal(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20]),
+            $this->buildScopeConfig([10 => 'USD', 20 => 'GBP'], 0, 'EUR')
+        );
+
+        self::assertSame(['EUR'], $checker->getCurrencyCodes([1, 2]));
+    }
+
+    public function testItIgnoresALeftoverWebsiteBaseCurrencyWhenThePriceScopeIsGlobal(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20]),
+            $this->buildScopeConfig([10 => 'EUR', 20 => 'USD'], 0, 'EUR')
+        );
+
+        self::assertFalse($checker->hasMixedCurrencies([1, 2]));
+        self::assertSame('EUR', $checker->resolveCurrencyCode($this->buildDataset(true), [1, 2]));
+    }
+
+    public function testItReadsTheWebsiteBaseCurrencyWhenThePriceScopeIsWebsite(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10]),
+            $this->buildScopeConfig([10 => 'USD'], 1, 'EUR')
+        );
+
+        self::assertSame(['USD'], $checker->getCurrencyCodes([1]));
+    }
+
+    public function testItStillReportsMixedCurrenciesWhenWebsiteScopedBaseCurrenciesDiffer(): void
+    {
+        $checker = new BaseCurrencyChecker(
+            $this->buildStoreManager([1 => 10, 2 => 20]),
+            $this->buildScopeConfig([10 => 'EUR', 20 => 'USD'], 1, 'EUR')
+        );
+
+        self::assertTrue($checker->hasMixedCurrencies([1, 2]));
+    }
+
     private function buildDataset(bool $withStoreField): Dataset
     {
         $fields = $withStoreField
@@ -135,15 +176,28 @@ final class BaseCurrencyCheckerTest extends TestCase
     /**
      * @param array<int,string> $currencyByWebsiteId
      */
-    private function buildScopeConfig(array $currencyByWebsiteId): ScopeConfigInterface
-    {
+    private function buildScopeConfig(
+        array $currencyByWebsiteId,
+        int $priceScope = 1,
+        string $defaultCurrency = 'EUR',
+    ): ScopeConfigInterface {
         $scopeConfig = $this->createStub(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnCallback(
-            function (string $path, string $scopeType, int $websiteId) use ($currencyByWebsiteId): string {
+            function (string $path, string $scopeType = ScopeConfigInterface::SCOPE_TYPE_DEFAULT, int|string|null $websiteId = null) use (
+                $currencyByWebsiteId,
+                $priceScope,
+                $defaultCurrency,
+            ): string|int {
+                if ($path === 'catalog/price/scope') {
+                    return $priceScope;
+                }
                 self::assertSame('currency/options/base', $path);
+                if ($scopeType === ScopeConfigInterface::SCOPE_TYPE_DEFAULT) {
+                    return $defaultCurrency;
+                }
                 self::assertSame(ScopeInterface::SCOPE_WEBSITE, $scopeType);
 
-                return $currencyByWebsiteId[$websiteId];
+                return $currencyByWebsiteId[(int) $websiteId];
             }
         );
 

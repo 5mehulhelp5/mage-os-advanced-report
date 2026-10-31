@@ -40,6 +40,17 @@ class StoreTimezoneMap
     }
 
     /**
+     * Timezone of the default scope: the one used for rows whose store is unknown (deleted store,
+     * admin-created rows).
+     */
+    public function getDefaultTimezone(): string
+    {
+        $timezone = $this->scopeConfig->getValue(self::XML_PATH_TIMEZONE);
+
+        return \is_string($timezone) && $timezone !== '' ? $timezone : 'UTC';
+    }
+
+    /**
      * @param int[] $storeIds Empty means all non-admin stores.
      * @return array<int,string>
      */
@@ -82,9 +93,24 @@ class StoreTimezoneMap
             $from = $from === null || $group['from'] < $from ? $group['from'] : $from;
             $to = $to === null || $group['to'] > $to ? $group['to'] : $to;
         }
+        if ($storeIds === [] && $this->hasMultipleTimezones([])) {
+            $default = $this->toUtcRangeInDefaultTimezone($range);
+            $from = $from === null || $default['from'] < $from ? $default['from'] : $from;
+            $to = $to === null || $default['to'] > $to ? $default['to'] : $to;
+        }
         $utc = $this->convert($range, 'UTC');
 
         return ['from' => $from ?? $utc['from'], 'to' => $to ?? $utc['to']];
+    }
+
+    /**
+     * Exact half-open UTC range in the default scope timezone.
+     *
+     * @return array{from: string, to: string}
+     */
+    public function toUtcRangeInDefaultTimezone(ResolvedDateRange $range): array
+    {
+        return $this->convert($range, $this->getDefaultTimezone());
     }
 
     /**
@@ -148,11 +174,12 @@ class StoreTimezoneMap
         $tz = new DateTimeZone($timezone);
         $utc = new DateTimeZone('UTC');
         $from = new DateTimeImmutable($range->from->format('Y-m-d') . ' 00:00:00', $tz);
-        $to = new DateTimeImmutable($range->to->format('Y-m-d') . ' 00:00:00', $tz);
+        // Exclusive end: the local midnight after the last day (a missing midnight only shifts a start bound).
+        $to = new DateTimeImmutable($range->to->modify('+1 day')->format('Y-m-d') . ' 00:00:00', $tz);
 
         return [
             'from' => $from->setTimezone($utc)->format(self::DATETIME_FORMAT),
-            'to' => $to->modify('+1 day')->setTimezone($utc)->format(self::DATETIME_FORMAT),
+            'to' => $to->setTimezone($utc)->format(self::DATETIME_FORMAT),
         ];
     }
 }

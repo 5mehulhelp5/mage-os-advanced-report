@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql\FieldExpression;
 
 use InvalidArgumentException;
-use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstShipmentWaitExpression;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Field;
@@ -33,15 +32,9 @@ final class FirstShipmentWaitExpressionTest extends TestCase
         self::assertStringContainsString('WHERE sh.order_id = order.entity_id)', $this->expression('order'));
     }
 
-    public function testItUsesThePrefixedSalesShipmentTableName(): void
+    public function testItRendersTheFirstShipmentWaitSubqueryAgainstThePrefixedSalesShipmentTable(): void
     {
-        $connection = $this->createStub(AdapterInterface::class);
-        $connection->method('getTableName')->willReturnCallback(static fn (string $table): string => 'pre_' . $table);
-
-        self::assertStringContainsString(
-            'FROM pre_sales_shipment AS sh',
-            (new FirstShipmentWaitExpression())->getExpression($this->dataset('main'), $connection)
-        );
+        self::assertStringContainsString('FROM pre_sales_shipment AS sh', $this->expression('main', 'pre_'));
     }
 
     public function testItDerivesTheOrderAliasFromTheCreatedAtMappingOfTheDataset(): void
@@ -56,7 +49,7 @@ final class FirstShipmentWaitExpressionTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
 
-        (new FirstShipmentWaitExpression())->getExpression(
+        (new FirstShipmentWaitExpression($this->createReportConnection()))->getExpression(
             $this->dataset('main', 'DATE(main.created_at)'),
             $this->createSqlAdapter()
         );
@@ -67,10 +60,11 @@ final class FirstShipmentWaitExpressionTest extends TestCase
         self::assertStringContainsString('GREATEST(0, TIMESTAMPDIFF(', $this->expression());
     }
 
-    private function expression(string $alias = 'main'): string
+    private function expression(string $alias = 'main', string $prefix = ''): string
     {
         return $this->normalizeSql(
-            (new FirstShipmentWaitExpression())->getExpression($this->dataset($alias), $this->createSqlAdapter())
+            (new FirstShipmentWaitExpression($this->createReportConnection($prefix)))
+                ->getExpression($this->dataset($alias), $this->createSqlAdapter())
         );
     }
 

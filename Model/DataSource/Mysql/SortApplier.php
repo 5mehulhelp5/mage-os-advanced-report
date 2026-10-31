@@ -9,6 +9,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use Magento\Framework\DB\Sql\Expression;
 use MageOS\AdvancedReport\Model\Definition\Formula\Formula;
+use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 
@@ -69,20 +70,44 @@ class SortApplier
         if ($metric === null || !$metric->isDerived()) {
             throw new InvalidArgumentException(\sprintf('Cannot sort by "%s".', $target));
         }
-        $expression = Formula::fromString((string) $metric->formula)->render(
-            function (string $code) use ($query, $connection): string {
+        $expression = $this->renderDerived($query, $metric, $connection, [$target]);
+
+        return new Expression($expression . ' ' . $direction);
+    }
+
+    /**
+     * Renders a derived metric formula, expanding referenced derived metrics recursively.
+     *
+     * @param ResolvedQuery $query
+     * @param Metric $metric
+     * @param AdapterInterface $connection
+     * @param string[] $path Derived metric codes being expanded, for cycle detection.
+     * @throws InvalidArgumentException On a formula cycle or a reference to an unselected aggregate metric.
+     */
+    private function renderDerived(
+        ResolvedQuery $query,
+        Metric $metric,
+        AdapterInterface $connection,
+        array $path
+    ): string {
+        return Formula::fromString((string) $metric->formula)->render(
+            function (string $code) use ($query, $connection, $path): string {
+                $referenced = $query->dataset->metrics[$code] ?? null;
+                if ($referenced !== null && $referenced->isDerived()) {
+                    if (\in_array($code, $path, true)) {
+                        throw new InvalidArgumentException(
+                            \sprintf('Formula cycle detected at metric "%s".', $code)
+                        );
+                    }
+
+                    return $this->renderDerived($query, $referenced, $connection, [...$path, $code]);
+                }
                 if (!\in_array($code, $query->metrics, true)) {
                     throw new InvalidArgumentException(\sprintf('Cannot sort by unselected metric "%s".', $code));
                 }
 
-                return $this->aggregateExpressionBuilder->build(
-                    $query->dataset,
-                    $query->dataset->getMetric($code),
-                    $connection
-                );
+                return $this->aggregateExpressionBuilder->build($query->dataset, $referenced ?? $query->dataset->getMetric($code), $connection);
             }
         );
-
-        return new Expression($expression . ' ' . $direction);
     }
 }

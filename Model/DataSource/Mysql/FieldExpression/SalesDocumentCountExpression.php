@@ -7,6 +7,7 @@ namespace MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression;
 use InvalidArgumentException;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -27,6 +28,7 @@ class SalesDocumentCountExpression implements FieldExpressionProviderInterface
     public function __construct(
         private readonly string $documentTable,
         private readonly string $itemTable,
+        private readonly ReportConnection $reportConnection,
         private readonly array $excludedStates = [],
     ) {
     }
@@ -38,9 +40,9 @@ class SalesDocumentCountExpression implements FieldExpressionProviderInterface
     {
         return \sprintf(
             self::TEMPLATE,
-            $connection->getTableName($this->documentTable),
-            $connection->getTableName($this->itemTable),
-            $connection->getTableName('sales_order_item'),
+            $this->reportConnection->getTableName($this->documentTable),
+            $this->reportConnection->getTableName($this->itemTable),
+            $this->reportConnection->getTableName('sales_order_item'),
             $this->getItemAlias($dataset),
             $this->buildStateCondition()
         );

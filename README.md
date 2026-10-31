@@ -64,6 +64,7 @@ and in comparisons (they are never averages of averages).
   declared, not tested. The report guardrail uses `MAX_EXECUTION_TIME` on MySQL and
   `max_statement_time` on MariaDB.
 - The `advanced_report` cache type must be enabled for result caching (reports still work with it disabled, uncached).
+- A `db/table_prefix` in `app/etc/env.php` is supported: every table the module reads is resolved through the report connection (CI runs the integration suite once with prefix `pre_`). Custom code that adds SQL must do the same, see [Advanced extension points](#advanced-extension-points).
 - `Magento_Reports` (hard dependency: the admin menu entry is a child of the Reports menu).
 - Recommended: MySQL/MariaDB timezone tables (`mysql_tzinfo_to_sql`) when stores use a non-UTC timezone, for exact
   hourly and daily buckets in SQL; without them the module falls back to an UTC-hour aggregation (exact, but
@@ -85,6 +86,24 @@ bin/magento cache:flush
 I/O, temporary sort space and replica lag that grow with the table size: on a store with a large `sales_order` table run
 the upgrade outside peak traffic (maintenance window recommended) and measure first with `dev/benchmark/index-timing.sql`
 (see [indexes](docs/indexes.md#installation-time-and-maintenance-window), risk R42).
+
+### Upgrading
+
+- Flush the result cache after every upgrade: `bin/magento cache:clean advanced_report`. The cache key covers the XML
+  definitions, but not SQL that lives in PHP providers or `di.xml` (cart email fallback, dynamic bundle rollup, first
+  order expression, credit memo states, timezone fallback), so stale results would be served until their TTL.
+- Regenerate the generated code: run `bin/magento setup:di:compile` in production mode (clear `generated/code` in developer
+  mode). The `ReportConnection` class gained `getTableName()`, so stale generated proxies fail.
+- The cart datasets warn when the date range reaches before the oldest surviving quote; this uses the core
+  `checkout/cart/delete_quote_after` setting of `Magento_Checkout` (default 30 days) and assumes the core `sales_clean_quotes`
+  cron runs. A lifetime of 0 or empty keeps only today's quotes.
+- Disabling the module and running `setup:upgrade` drops the `mageos_advancedreport_saved` table (saved reports are lost)
+  and the module indexes on core tables, because they are declared in `etc/db_schema.xml`. Back up the table first, see
+  [indexes](docs/indexes.md#disabling-the-module).
+- Several metrics changed meaning in this release: discounts are now net of the discount tax compensation, item amounts
+  are net of the canceled quantity, dynamic price bundles roll up their children, guest carts use the billing address
+  email, an ordered cart is never abandoned or recent, and field level ACL gates birth and gender (needs
+  `Magento_Sales::actions_view`). See [metric definitions](docs/metric-definitions.md) and [security](docs/security.md).
 
 ## Configuration reference
 
@@ -126,7 +145,7 @@ waiting time uses the first shipment (unshipped orders are excluded).
 |---|---|---|---|
 | `orders` | Orders | `COUNT(order_id)` | Number of orders placed. |
 | `gross_sales` | Gross sales | `SUM(gross_sales_amount)` | Order subtotal excluding tax, net of cancellations. |
-| `discounts` | Discounts | `SUM(discount_amount)` | Discount amount applied, net of cancellations. A lower value is an improvement. |
+| `discounts` | Discounts | `SUM(discount_amount)` | Discount amount applied, net of cancellations and of the discount tax compensation. A lower value is an improvement. |
 | `returns` | Returns | `SUM(returns_amount)` | Subtotal and discount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date. |
 | `net_sales` | Net sales | `gross_sales - discounts - returns` | Gross sales minus discounts minus returns. |
 | `shipping` | Shipping | `SUM(shipping_amount)` | Shipping amount charged, net of cancellations and refunds. |
@@ -170,22 +189,22 @@ waiting time uses the first shipment (unshipped orders are excluded).
 | `units_refunded` | Units refunded | `SUM(qty_refunded_qty)` | Quantity refunded via credit memos. A lower value is an improvement. |
 | `units_shipped` | Units shipped | `SUM(qty_shipped_qty)` | Quantity shipped. Limitation: shipped units are attributed to the original order date, not the shipment date; bundle products shipped separately are not counted. |
 | `units_to_ship` | Units to ship | `SUM(qty_to_ship_qty)` | Quantity ordered and not yet shipped, refunded or canceled (virtual items and bundle products shipped separately excluded). A lower value is an improvement. Limitation: units are attributed to the original order date, so only orders placed in the selected period are included. |
-| `gross_sales` | Gross sales | `SUM(gross_sales_amount)` | Row total, excluding tax. Configurable products are counted as a single line (bundle = single line). |
-| `discounts` | Discounts | `SUM(discount_amount)` | Discount amount applied to the item. A lower value is an improvement. |
+| `gross_sales` | Gross sales | `SUM(gross_sales_amount)` | Row total, excluding tax, net of the canceled quantity. Configurable products are counted as a single line (bundle = single line; dynamic price bundles roll up their children). |
+| `discounts` | Discounts | `SUM(discount_amount)` | Discount applied to the item, net of the canceled quantity and of the discount tax compensation. A lower value is an improvement. |
 | `returns` | Returns | `SUM(returns_amount)` | Amount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date. |
 | `net_sales` | Net sales | `gross_sales - discounts - returns` | Gross sales minus discounts minus returns. |
-| `cost` | Cost | `SUM(cost_amount)` where `has_cost` | Unit cost multiplied by units sold, only over rows with a known cost. |
+| `cost` | Cost | `SUM(cost_amount)` where `has_cost` | Unit cost multiplied by units sold (net of canceled and refunded units), only over rows with a known cost. |
 | `gross_margin` | Gross margin | `net_sales - cost` | Net sales minus cost. |
 | `margin_pct` | Margin % | `gross_margin / net_sales` | Gross margin as a percentage of net sales. |
 | `return_rate` | Return rate | `returns / gross_sales` | Returns as a percentage of gross sales. A lower value is an improvement. |
 | `orders` | Orders | `COUNT DISTINCT(order_id)` | Number of distinct orders contributing item rows. |
 | `shipments` | Shipments | `SUM(shipment_count)` | Number of shipments containing the product. Limitation: shipments are attributed to the original order date, not the shipment date. |
-| `credit_memos` | Credit memos | `SUM(credit_memo_count)` | Number of credit memos containing the product, excluding canceled credit memos. A lower value is an improvement. Limitation: credit memos are attributed to the original order date, not the credit memo date. |
+| `credit_memos` | Credit memos | `SUM(credit_memo_count)` | Number of credit memos containing the product, excluding canceled and open credit memos. A lower value is an improvement. Limitation: credit memos are attributed to the original order date, not the credit memo date. |
 | `has_cost_rows` | Rows with cost | `SUM(has_cost)` | Helper metric for cost_coverage: number of item rows with a known unit cost. |
 | `rows` | Rows | `COUNT(item_id)` | Helper metric for cost_coverage: total number of item rows. |
 | `cost_coverage` | Cost coverage | `has_cost_rows / rows` | Share of item rows with a known unit cost. |
 
-Note: a product repeated on two separate lines of the same order is counted once per line for the same document. Canceled credit memos are excluded, while open (pending refund) credit memos are counted. Adjustment-only credit memos (no item with qty > 0) are not counted.
+Note: a product repeated on two separate lines of the same order is counted once per line for the same document. Canceled and open (pending refund) credit memos are excluded. Adjustment-only credit memos (no item with qty > 0) are not counted.
 
 ### `catalog_stock` (Stock)
 
@@ -225,9 +244,11 @@ Presets: `recent_carts`, `recent_cart_items`, `abandoned_carts_trend`, `abandone
 | `carts` | `carts`, `cart_value`, `avg_cart_value`, `items_in_carts`, `abandoned_carts`, `abandoned_value`, `recent_carts`, `converted_carts`, `converted_value`, `abandonment_rate`, `conversion_rate` |
 | `cart_items` | `units_in_carts`, `cart_items_value`, `carts`, `abandoned_units`, `abandoned_items_value`, `abandoned_carts`, `converted_units`, `item_conversion_rate` |
 
-- Abandoned: active cart, with items, non-empty customer email (guests included), idle longer than
-  `carts/abandoned_after_hours`. Recent: active cart with items updated within `carts/recent_cart_hours`.
+- Abandoned: active cart, with items, a non-empty email (the quote email, else the billing address email, so guests are
+  included), idle longer than `carts/abandoned_after_hours`, and no order. The `customer_email` dimension uses the same
+  fallback. An ordered cart is `converted`, never abandoned or recent, even if its quote was reactivated. Recent: active cart with items updated within `carts/recent_cart_hours`.
   Converted: any order references the cart through `sales_order.quote_id`, whatever its status.
+- When the date range reaches before the oldest surviving quote (`checkout/cart/delete_quote_after` of `Magento_Checkout`), a retention warning is shown.
 - Both settings are part of the cache key. Cart datasets always use the open-period cache TTL because "now" moves the
   abandoned and recent thresholds.
 - Customer emails are exposed (`customer_email` dimension, `abandoned_carts_list`): personal data.
@@ -422,10 +443,31 @@ When XML is not enough, register a class in `di.xml`:
 
 | Need | Implement | Register in |
 |---|---|---|
-| A field whose SQL depends on runtime state (table prefixes, correlated subqueries, configuration) | `MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface`, referenced by `<mysql expressionProvider="name"/>` | `FieldExpressionResolver` argument `providers`, keyed by `name` (see `FirstShipmentWaitExpression`) |
+| A field whose SQL depends on runtime state (correlated subqueries, configuration) | `MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface`, referenced by `<mysql expressionProvider="name"/>` | `FieldExpressionResolver` argument `providers`, keyed by `name` (see `FirstShipmentWaitExpression`) |
 | A dataset whose base is not a single table (e.g. a union or a derived select) | `MageOS\AdvancedReport\Model\DataSource\Mysql\BaseSelectProviderInterface`, referenced by `<source name="mysql" provider="Class"/>` | `SelectBuilder` argument `baseSelectProviders`, keyed by class name (see `StockSelectProvider`) |
 | A report that is not a single aggregation (anti-joins, rolling windows, two-step queries) | `MageOS\AdvancedReport\Api\PresetQueryInterface`, referenced by `<preset presetQuery="Class">`; may fill `virtual` metrics | `PresetQueryPool` argument `presetQueries`, keyed by class name (see `LowStockCoverageQuery`) |
 | Definitions generated from data or configuration (e.g. one dimension per product attribute) | `MageOS\AdvancedReport\Model\Definition\DatasetExtenderInterface` or `PresetExtenderInterface` | `DefinitionRegistry` arguments `datasetExtenders` / `presetExtenders` (see `AttributeJoinProvider`) |
+
+Table names inside an expression provider or a preset query must be resolved with
+`MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection::getTableName()`. The adapter's own
+`getTableName()` never applies the `db/table_prefix`, and a unit test forbids it in module code.
+
+```php
+final class ShippedOrderCountExpression implements FieldExpressionProviderInterface
+{
+    public function __construct(private readonly ReportConnection $reportConnection)
+    {
+    }
+
+    public function getExpression(Dataset $dataset, AdapterInterface $connection): string
+    {
+        // prefix-aware, unlike $adapter->getTableName()
+        $shipments = $this->reportConnection->getTableName('sales_shipment');
+
+        return '(SELECT COUNT(*) FROM ' . $shipments . ' AS s WHERE s.order_id = main.entity_id)';
+    }
+}
+```
 
 ### Rules
 
@@ -550,6 +592,8 @@ its entity. Full functionality needs these core resources:
 - `Magento_InventoryApi::stock` (`catalog_salable`, MSI only)
 - `Magento_Reports::abandoned` **and** `Magento_Sales::sales_order` (`carts`, `cart_items`; module ACL `MageOS_AdvancedReport::carts`). The cart datasets list customer emails.
 
+`dead_stock` and `never_sold` also need the `sales_items` permission (they read order items). Birth date and gender fields need `Magento_Sales::actions_view` on the order datasets and `Magento_Customer::manage` on `customers` (field level ACL). An owner who lost a dataset permission can still delete their own saved report.
+
 Details, the entry-point inventory and the data classification are in [docs/security.md](docs/security.md).
 
 ## Known limits
@@ -559,10 +603,11 @@ The full list with severity and owner is in the [risk register](docs/risk-regist
 - **Monetary reports and several base currencies**: a request with money metrics (or money filters) over stores or orders with different base currencies is rejected with HTTP 400 (also on Save, Export and `advanced-report:explain`). Select stores sharing one base currency. Orders, units and customer reports are not affected.
 - **Attribution to the order date**: returns, shipped units, units to ship, shipments and credit memos are attributed to the original order date, not the credit memo or shipment date, so past periods change when refunds or shipments are created (R04, R05).
 - **Product types and dimensions**: bundle products are one line (R06); a multiselect attribute dimension is bucketed by its raw stored value (R07); `category_id` is a fan-out dimension, totals may not equal the sum of the rows (R01).
-- **Customers**: new vs returning counts a guest later registered, or a customer who changes email, twice (R08, R14, R28); accounts with `store_id` 0 or a deleted store are excluded when stores are filtered (R15); large lists are capped by `max_rows` (R16); an unmatched gender value is shown raw (R09).
+- **Customers**: new vs returning counts a guest later registered (a registered order after a guest order with the same email is new), or a customer who changes email, twice (R08, R14, R28); accounts with `store_id` 0 or a deleted store are excluded when stores are filtered (R15); large lists are capped by `max_rows` (R16); an unmatched gender value is shown raw (R09).
 - **Inventory**: stock value uses the default-scope price and cost (R10); without MSI there is no `catalog_salable` dataset, reserved quantity or source dimension (R27); multi-stock salable quantities are covered only by unit tests, an accepted risk (R26).
 - **Compatibility**: `Magento_Reports` is a hard dependency (R11); Magento Open Source / Mage-OS only, Adobe Commerce `row_id` is unsupported (R12).
 - **Freshness and security**: results are cached with TTL-only freshness (R18, R21, R44); roles that only had a module dataset ACL need the matching core ACL after the upgrade (R29); no website-scoped admin roles (R30).
+- **Comparisons**: previous period is the same number of calendar days before the range (the preceding whole months when the range is whole months); previous year is the same calendar dates (29 February becomes 28 February). Rows are aligned only with a single date dimension; with another dimension next to a date the comparison values are empty. Comparison rows are not gap filled, there is no quarter granularity and metrics cannot be filtered. Details in [time and currency](docs/time-and-currency.md#comparison-periods).
 - **Upgrade note**: the former "mixed base currencies" warning was removed; reports that used to show it are now rejected. Without MySQL timezone tables, results are exact but non-additive metrics are empty and non whole-hour timezones reach the row cap sooner.
 
 ## Documentation

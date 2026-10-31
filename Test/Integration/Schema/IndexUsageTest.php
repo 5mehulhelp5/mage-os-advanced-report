@@ -36,9 +36,12 @@ final class IndexUsageTest extends TestCase
         'QUOTE_UPDATED_AT' => 'abandoned_carts_trend',
     ];
 
+    /** Core indexes the statements rely on, as table and columns. */
+    private const array CORE_INDEXES = ['SALES_ORDER_QUOTE_ID' => ['sales_order', ['quote_id']]];
+
     public function testItListsTheFirstOrderIndexAmongThePossibleKeysOfTheNewCustomerLookup(): void
     {
-        $this->assertContains(
+        $this->assertIndexListed(
             'SALES_ORDER_CUSTOMER_ID_CREATED_AT',
             $this->possibleKeys($this->presetSelect('new_vs_returning'))
         );
@@ -46,7 +49,7 @@ final class IndexUsageTest extends TestCase
 
     public function testItListsTheCustomerEmailIndexAmongThePossibleKeysOfTheGuestFirstOrderLookup(): void
     {
-        $this->assertContains(
+        $this->assertIndexListed(
             'SALES_ORDER_CUSTOMER_EMAIL_CREATED_AT',
             $this->possibleKeys($this->presetSelect('new_vs_returning'))
         );
@@ -54,7 +57,10 @@ final class IndexUsageTest extends TestCase
 
     public function testItListsTheProductIndexAmongThePossibleKeysOfTheDeadStockAntiJoin(): void
     {
-        $this->assertContains('SALES_ORDER_ITEM_PRODUCT_ID', $this->possibleKeys($this->presetSelect('dead_stock')));
+        $this->assertIndexListed(
+            'SALES_ORDER_ITEM_PRODUCT_ID',
+            $this->possibleKeys($this->presetSelect('dead_stock'))
+        );
     }
 
     public function testItAssertsIndexUsageOnlyForIndexesTheDetectedFlavourIsExpectedToChoose(): void
@@ -66,30 +72,33 @@ final class IndexUsageTest extends TestCase
 
         $possible = $this->possibleKeys($this->presetSelect('dead_stock'));
         foreach ($expected as $index) {
-            $this->assertContains($index, $possible, $index);
+            $this->assertIndexListed($index, $possible);
         }
     }
 
     public function testItListsEveryNewIndexAmongThePossibleKeysOfTheStatementItServes(): void
     {
         foreach (self::NEW_INDEXES as $index => $preset) {
-            $this->assertContains($index, $this->possibleKeys($this->presetSelect($preset)), $index);
+            $this->assertIndexListed($index, $this->possibleKeys($this->presetSelect($preset)));
         }
     }
 
     public function testItOffersQuoteUpdatedAtForTheCartsDatasetDateRangeStatement(): void
     {
-        $this->assertContains('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_carts')));
+        $this->assertIndexListed('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_carts')));
     }
 
     public function testItOffersQuoteUpdatedAtForTheCartItemsDatasetDateRangeStatement(): void
     {
-        $this->assertContains('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_cart_items')));
+        $this->assertIndexListed('QUOTE_UPDATED_AT', $this->possibleKeys($this->presetSelect('recent_cart_items')));
     }
 
     public function testItOffersSalesOrderQuoteIdForTheConvertedCartSubSelect(): void
     {
-        $this->assertContains('SALES_ORDER_QUOTE_ID', $this->possibleKeys($this->presetSelect('abandoned_carts_trend')));
+        $this->assertIndexListed(
+            'SALES_ORDER_QUOTE_ID',
+            $this->possibleKeys($this->presetSelect('abandoned_carts_trend'))
+        );
     }
 
     public function testItDocumentsARationaleForEveryModuleIndexAndTheRemovableIndexes(): void
@@ -103,6 +112,30 @@ final class IndexUsageTest extends TestCase
         $this->assertStringContainsString('## Removable', $documentation);
         $removable = substr($documentation, (int) strpos($documentation, '## Removable'));
         $this->assertStringContainsString('SALES_ORDER_ITEM_PRODUCT_ID', $removable);
+    }
+
+    /**
+     * On a prefixed install the declarative schema names indexes from the prefixed table, so the referenceId
+     * is accepted as is or through the adapter's naming of the prefixed table and the declared columns.
+     *
+     * @param string[] $possibleKeys
+     */
+    private function assertIndexListed(string $referenceId, array $possibleKeys): void
+    {
+        $accepted = [$referenceId];
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        if (isset(self::CORE_INDEXES[$referenceId])) {
+            [$table, $columns] = self::CORE_INDEXES[$referenceId];
+            $accepted[] = $resource->getConnection()->getIndexName($resource->getTableName($table), $columns);
+        }
+        $schema = simplexml_load_string((string) file_get_contents(self::MODULE_ROOT . '/etc/db_schema.xml'));
+        foreach ($schema->xpath('//table/index[@referenceId="' . $referenceId . '"]') ?: [] as $index) {
+            $columns = array_map(static fn ($column): string => (string) $column['name'], $index->xpath('column'));
+            $table = (string) $index->xpath('..')[0]['name'];
+            $accepted[] = $resource->getConnection()->getIndexName($resource->getTableName($table), $columns);
+        }
+
+        $this->assertNotEmpty(array_intersect($accepted, $possibleKeys), $referenceId);
     }
 
     private function presetSelect(string $code): Select

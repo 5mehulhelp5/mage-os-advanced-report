@@ -83,16 +83,18 @@ final class BenchmarkCommandTest extends TestCase
         });
 
         $this->connection = $this->createMock(AdapterInterface::class);
-        $this->connection->method('getTableName')->willReturnArgument(0);
         $this->connection->method('fetchOne')->willReturnCallback(
             static fn (string $sql): string => match (true) {
-                str_contains($sql, 'sales_order_item') => '4200',
-                str_contains($sql, 'sales_order') => '1200',
+                $sql === 'SELECT COUNT(*) FROM pfx_sales_order_item' => '4200',
+                $sql === 'SELECT COUNT(*) FROM pfx_sales_order' => '1200',
                 default => '8.4.1-MySQL',
             }
         );
         $reportConnection = $this->createMock(ReportConnection::class);
         $reportConnection->method('get')->willReturn($this->connection);
+        $reportConnection->method('getTableName')->willReturnCallback(
+            static fn (string $table): string => 'pfx_' . $table
+        );
         $guardrails = $this->createMock(Guardrails::class);
         $guardrails->method('applyTimeout')->willReturnArgument(0);
 
@@ -181,6 +183,15 @@ final class BenchmarkCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $exit);
         self::assertSame([], $this->ran);
+    }
+
+    public function testItCountsRowsOfThePrefixedTableInTheBenchmarkCommand(): void
+    {
+        $this->tester->execute(['--preset' => ['product_performance']]);
+
+        $display = $this->tester->getDisplay();
+        self::assertStringContainsString('1200', $display);
+        self::assertStringContainsString('4200', $display);
     }
 
     public function testItIncludesTheProfileLabelOrderCountsAndServerVersionInTheOutputHeader(): void

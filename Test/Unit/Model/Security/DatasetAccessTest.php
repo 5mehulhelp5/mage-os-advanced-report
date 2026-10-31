@@ -9,6 +9,9 @@ use Magento\Framework\AuthorizationInterface;
 use Magento\Framework\Exception\AuthorizationException;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
+use MageOS\AdvancedReport\Model\Definition\Field;
+use MageOS\AdvancedReport\Model\Definition\FieldType;
+use MageOS\AdvancedReport\Model\Definition\Preset;
 use MageOS\AdvancedReport\Model\Security\DatasetAccess;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -150,12 +153,93 @@ final class DatasetAccessTest extends TestCase
         $access->getResources();
     }
 
+    public function testItDeniesAPresetWhoseRequiredDatasetIsDenied(): void
+    {
+        $registry = $this->createStub(DefinitionRegistry::class);
+        $registry->method('getDataset')->willReturn($this->dataset('sales_items', 'MageOS_AdvancedReport::items'));
+        $access = $this->access(['Magento_Sales::sales_order'], null, $registry, ['dead_stock' => ['sales_items']]);
+
+        self::assertFalse($access->isPresetAllowed($this->preset('dead_stock')));
+        self::assertTrue($access->isPresetAllowed($this->preset('stock_value')));
+    }
+
+    public function testItAllowsAPresetWhenItsRequiredDatasetIsGranted(): void
+    {
+        $registry = $this->createStub(DefinitionRegistry::class);
+        $registry->method('getDataset')->willReturn($this->dataset('sales_items', 'MageOS_AdvancedReport::items'));
+        $access = $this->access(
+            ['MageOS_AdvancedReport::items', 'Magento_Sales::sales_order'],
+            null,
+            $registry,
+            ['dead_stock' => ['sales_items']]
+        );
+
+        self::assertTrue($access->isPresetAllowed($this->preset('dead_stock')));
+        $access->assertPresetAllowed($this->preset('dead_stock'));
+    }
+
+    public function testItThrowsAnAuthorizationExceptionWhenAPresetRequiredDatasetIsDenied(): void
+    {
+        $registry = $this->createStub(DefinitionRegistry::class);
+        $registry->method('getDataset')->willReturn($this->dataset('sales_items', 'MageOS_AdvancedReport::items'));
+        $access = $this->access([], null, $registry, ['never_sold' => ['sales_items']]);
+
+        $this->expectException(AuthorizationException::class);
+        $this->expectExceptionMessage('You are not allowed to query the resource "MageOS_AdvancedReport::items".');
+
+        $access->assertPresetAllowed($this->preset('never_sold'));
+    }
+
+    public function testItIncludesFieldAclResourcesInTheDatasetAccessResources(): void
+    {
+        $gated = new Dataset(
+            'customers',
+            'customers',
+            'MageOS_AdvancedReport::orders',
+            'sales',
+            false,
+            null,
+            null,
+            null,
+            [],
+            [
+                'birth_year' => new Field('birth_year', 'Year', FieldType::INTEGER, [], null, 'Magento_Customer::manage'),
+                'plain' => new Field('plain', 'Plain', FieldType::STRING),
+            ],
+            [],
+            [],
+            [],
+        );
+        $registry = $this->createStub(DefinitionRegistry::class);
+        $registry->method('getDatasets')->willReturn(['customers' => $gated]);
+
+        self::assertSame(
+            ['MageOS_AdvancedReport::orders', 'Magento_Customer::manage'],
+            $this->access([], [], $registry)->getResources()
+        );
+    }
+
+    public function testItAllowsAFieldOnlyWhenItsAclIsGrantedOrAbsent(): void
+    {
+        $gated = new Field('birth_year', 'Year', FieldType::INTEGER, [], null, 'Magento_Customer::manage');
+        $plain = new Field('plain', 'Plain', FieldType::STRING);
+
+        self::assertFalse($this->access([], [])->isFieldAllowed($gated));
+        self::assertTrue($this->access(['Magento_Customer::manage'], [])->isFieldAllowed($gated));
+        self::assertTrue($this->access([], [])->isFieldAllowed($plain));
+    }
+
     /**
      * @param string[] $granted
      * @param array<string,string|string[]>|null $core
+     * @param array<string,string[]> $presetDatasets
      */
-    private function access(array $granted, ?array $core = null, ?DefinitionRegistry $registry = null): DatasetAccess
-    {
+    private function access(
+        array $granted,
+        ?array $core = null,
+        ?DefinitionRegistry $registry = null,
+        array $presetDatasets = [],
+    ): DatasetAccess {
         $authorization = $this->createStub(AuthorizationInterface::class);
         $authorization->method('isAllowed')->willReturnCallback(
             static fn (string $id): bool => \in_array($id, $granted, true)
@@ -167,12 +251,18 @@ final class DatasetAccessTest extends TestCase
             $authorization,
             $provider,
             $registry ?? $this->createStub(DefinitionRegistry::class),
-            $core ?? ['sales_orders' => 'Magento_Sales::sales_order']
+            $core ?? ['sales_orders' => 'Magento_Sales::sales_order'],
+            $presetDatasets
         );
     }
 
-    private function dataset(string $code): Dataset
+    private function preset(string $code): Preset
     {
-        return new Dataset($code, $code, 'MageOS_AdvancedReport::orders', 'sales', false, null, null, null, [], [], [], [], []);
+        return new Preset($code, 'catalog', $code, 'catalog_stock', [], [], [], [], 'none', null, ['mysql']);
+    }
+
+    private function dataset(string $code, string $acl = 'MageOS_AdvancedReport::orders'): Dataset
+    {
+        return new Dataset($code, $code, $acl, 'sales', false, null, null, null, [], [], [], [], []);
     }
 }

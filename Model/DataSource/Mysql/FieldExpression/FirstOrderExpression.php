@@ -8,10 +8,11 @@ use InvalidArgumentException;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CountedStatusCondition;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
- * 1 when no earlier counted order exists for the same customer (by id, or by email for guests), else 0.
+ * 1 when no earlier counted order exists for the same customer (by id; for guests by email, whatever the earlier order's customer), else 0.
  */
 class FirstOrderExpression implements FieldExpressionProviderInterface
 {
@@ -20,8 +21,10 @@ class FirstOrderExpression implements FieldExpressionProviderInterface
         . ' AND (p.created_at < %3$s.created_at OR p.entity_id < %3$s.entity_id)'
         . ' AND %4$s)';
 
-    public function __construct(private readonly CountedStatusCondition $countedStatusCondition)
-    {
+    public function __construct(
+        private readonly CountedStatusCondition $countedStatusCondition,
+        private readonly ReportConnection $reportConnection,
+    ) {
     }
 
     /**
@@ -30,7 +33,7 @@ class FirstOrderExpression implements FieldExpressionProviderInterface
     public function getExpression(Dataset $dataset, AdapterInterface $connection): string
     {
         $alias = $this->getOrderAlias($dataset);
-        $table = $connection->getTableName('sales_order');
+        $table = $this->reportConnection->getTableName('sales_order');
         $status = $this->countedStatusCondition->build('p.status', $connection);
 
         return \sprintf(
@@ -40,7 +43,7 @@ class FirstOrderExpression implements FieldExpressionProviderInterface
             \sprintf(
                 self::EARLIER_ORDER,
                 $table,
-                'p.customer_id IS NULL AND p.customer_email = ' . $alias . '.customer_email',
+                'p.customer_email = ' . $alias . '.customer_email',
                 $alias,
                 $status
             )

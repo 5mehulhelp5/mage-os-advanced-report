@@ -54,17 +54,21 @@ class UtcHourReaggregator
     ): array {
         $metrics = array_values(array_filter($metrics, static fn (Metric $m): bool => $m->isAggregate()));
         $groups = [];
-        $warnings = [];
+        $timezones = $this->timezoneMap->getTimezonesForStores($storeIds);
+        $defaultTimezone = $this->timezoneMap->getDefaultTimezone();
+        $filterTimezone = (string) (reset($timezones) ?: $defaultTimezone);
 
         foreach ($rows as $row) {
             $raw = $row['dims_raw'];
             $utcHour = (string) $raw[self::UTC_HOUR_KEY];
-            $storeId = $storeKey !== null ? (int) $raw[$storeKey] : (int) reset($storeIds);
+            $timezone = $storeKey !== null
+                ? ($timezones[(int) $raw[$storeKey]] ?? $defaultTimezone)
+                : $filterTimezone;
             unset($raw[self::UTC_HOUR_KEY]);
             if ($dropStoreKey && $storeKey !== null) {
                 unset($raw[$storeKey]);
             }
-            $raw[$bucketDimCode] = $this->bucketValue($bucket, $utcHour, $storeId, $firstDayOfWeek);
+            $raw[$bucketDimCode] = $this->bucketValue($bucket, $utcHour, $timezone, $firstDayOfWeek);
 
             $key = json_encode($raw, JSON_THROW_ON_ERROR);
             $groups[$key]['dims'] = $raw;
@@ -92,10 +96,10 @@ class UtcHourReaggregator
         ];
     }
 
-    private function bucketValue(string $bucket, string $utcHour, int $storeId, int $firstDayOfWeek): string
+    private function bucketValue(string $bucket, string $utcHour, string $timezone, int $firstDayOfWeek): string
     {
         $local = (new DateTimeImmutable($utcHour, new DateTimeZone('UTC')))
-            ->setTimezone(new DateTimeZone($this->timezoneMap->getTimezone($storeId)));
+            ->setTimezone(new DateTimeZone($timezone));
 
         return match ($bucket) {
             'hour' => $local->format('Y-m-d H:00'),

@@ -6,6 +6,7 @@ namespace MageOS\AdvancedReport\Model\Stock;
 
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -18,6 +19,10 @@ abstract class AbstractStockProvider implements StockProviderInterface
         'price' => ['table' => 'catalog_product_entity_decimal', 'alias' => 'price'],
         'status' => ['table' => 'catalog_product_entity_int', 'alias' => 'is_enabled'],
     ];
+
+    public function __construct(protected readonly ReportConnection $reportConnection)
+    {
+    }
 
     public function getSelect(AdapterInterface $connection, Dataset $dataset): Select
     {
@@ -48,8 +53,8 @@ abstract class AbstractStockProvider implements StockProviderInterface
         $attributeId = \sprintf(
             '(SELECT a.attribute_id FROM %s AS a INNER JOIN %s AS t ON t.entity_type_id = a.entity_type_id'
             . ' WHERE t.entity_type_code = %s AND a.attribute_code = %s)',
-            $connection->getTableName('eav_attribute'),
-            $connection->getTableName('eav_entity_type'),
+            $this->reportConnection->getTableName('eav_attribute'),
+            $this->reportConnection->getTableName('eav_entity_type'),
             $connection->quote('catalog_product'),
             $connection->quote($code)
         );
@@ -59,7 +64,7 @@ abstract class AbstractStockProvider implements StockProviderInterface
             $attributeId
         );
         $select->joinLeft(
-            [$code => $connection->getTableName($table)],
+            [$code => $this->reportConnection->getTableName($table)],
             $join,
             [$alias => $code . '.value']
         );

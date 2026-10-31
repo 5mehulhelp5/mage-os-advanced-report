@@ -69,6 +69,10 @@ jobs:
       # The matrix drops its `magento` axis and lists everything under `include`: with the axis, include
       # entries sharing a `magento` value would overwrite each other's `services`.
       #
+      # One more 2.4.9 MySQL entry carries `table_prefix: pre_`: copied from the resolved entry with that single
+      # flag added, so the "Set the table prefix" step of the job installs Magento with `db-prefix` and the suite
+      # proves that no query depends on an empty `db/table_prefix`.
+      #
       # The MariaDB entry runs on ubuntu-24.04 instead of ubuntu-latest (26.04): the 26.04 MySQL 8.4 client
       # makes mysqldump query information_schema.COLUMN_STATISTICS, which MariaDB lacks (the test framework
       # adds --column-statistics=0 only for 8.0 clients).
@@ -89,6 +93,8 @@ jobs:
               | .include as $base
               | def mariadb:
                   if startswith("2.4.9") then "mariadb:11.4" else empty end;
+                def prefixed:
+                  if startswith("2.4.9") then "pre_" else empty end;
                 {include: ($base + [
                   $base[]
                   | select(.services.mysql)
@@ -97,6 +103,11 @@ jobs:
                       .image = $image
                       | .options = "--health-cmd=\"healthcheck.sh --connect --innodb_initialized\" --health-interval=10s --health-timeout=5s --health-retries=10"
                     )
+                ] + [
+                  $base[]
+                  | select(.services.mysql)
+                  | (.version | tostring | prefixed) as $prefix
+                  | .table_prefix = $prefix
                 ])}
               | .include |= map(
                   if (.services.mysql.image // "" | startswith("mariadb"))
@@ -282,7 +293,7 @@ jobs:
 
   # Test/Integration inside a Magento install, with the services from the matrix.
   integration-test:
-    name: Integration (${{ matrix.version }}, ${{ matrix.services.mysql.image }})
+    name: Integration (${{ matrix.version }}, ${{ matrix.services.mysql.image }}${{ matrix.table_prefix && format(', prefix {0}', matrix.table_prefix) || '' }})
     needs: compute-matrix
     if: ${{ fromJSON(needs.compute-matrix.outputs.resolved)['integration_test'].enabled != false }}
     runs-on: ${{ matrix.os }}
@@ -356,6 +367,12 @@ jobs:
           sed -i "s/'db-password' => '123123q'/'db-password' => 'password'/" etc/install-config-mysql.php.dist
           sed -i "s/'elasticsearch-host' => 'localhost'/'elasticsearch-host' => '127.0.0.1'/" etc/install-config-mysql.php.dist
           sed -i "s/'amqp-host' => 'localhost'/'amqp-host' => '127.0.0.1'/" etc/install-config-mysql.php.dist
+
+      # Only the entry with `table_prefix` installs with `db-prefix`; the dist file ships `'db-prefix' => ''`.
+      - name: Set the table prefix
+        if: ${{ matrix.table_prefix }}
+        working-directory: ${{ steps.setup-magento.outputs.path }}/dev/tests/integration
+        run: sed -i "s/'db-prefix' => ''/'db-prefix' => '${{ matrix.table_prefix }}'/" etc/install-config-mysql.php.dist
 
       - name: Enable log-bin-trust-function-creators
         run: mysql -h127.0.0.1 -uroot -prootpassword -e "SET GLOBAL log_bin_trust_function_creators = 1;"

@@ -32,6 +32,13 @@ inventory `min_qty`, connection name).
 Cached results go through a JSON round trip: a float without fractional part comes back as an integer (`10.0` becomes `10`).
 Values are equal, types may differ; tests compare cached and fresh rows with `assertEquals` for this reason.
 
+## What is not in the key
+
+The key covers the merged XML definitions, not the PHP and SQL behind them. A change that lives only in a field expression
+provider or in `di.xml` (for example the cart email fallback of `CartConditionBuilder`, the dynamic bundle rollup, the first
+order expression, the credit memo excluded states or the timezone fallback branch) does not change the key: after upgrading
+the module, run `bin/magento cache:clean advanced_report`, or stale entries keep being served until their TTL.
+
 ## TTL
 
 | Setting | Default | Applies to |
@@ -46,8 +53,9 @@ are part of the result-config key, so changing them gives new entries.
 
 ## Invalidation
 
-- Saving the `mageos_advancedreport` configuration section cleans the whole cache type (`CleanReportCacheObserver`): it covers
-  settings that change results without being in the key (report attributes, dead stock days, counted statuses, connection).
+- Saving the `mageos_advancedreport` configuration section cleans the whole cache type (`CleanReportCacheObserver`). The
+  result-changing settings (report attributes, dead stock days, counted statuses, connection) are already part of the key, so
+  the clean only frees the entries that would otherwise wait for their TTL.
 - Changes made outside the admin (`bin/magento config:set`, `app:config:import`) do not run the observer, but they produce a
   new key through the result-config component, so the old entries are no longer read and expire by TTL (R45). The admin
   save still cleans the type.
@@ -68,7 +76,7 @@ On a miss the runner takes a per-key lock (`ResultCacheLock`, `LockManagerInterf
 `mageos_advancedreport_<key>`), re-reads the cache once it holds the lock, and executes and saves only if the entry is still
 missing: concurrent identical misses run the report once and the waiting requests are served from the cache.
 
-- Wait time: 10 seconds (constructor default), below the query timeout.
+- Wait time: the query timeout rounded up to whole seconds plus a 2 second margin, so a waiter outlasts the run it waits for; 60 seconds when the timeout is 0 (unlimited). Long waits inside an admin request can hit PHP-FPM or proxy timeouts. The lock is skipped altogether when the `advanced_report` cache type is disabled.
 - If the lock cannot be taken (wait timeout, or any exception from the lock backend, for example a MySQL user lock deadlock
   with the nested run of `low_stock_coverage`), the report is executed without the lock and the request never fails
   because of it (this is the lock fallback under contention: duplicated work, still correct).

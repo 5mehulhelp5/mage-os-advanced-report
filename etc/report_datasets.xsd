@@ -142,6 +142,7 @@
         <xs:attribute name="label" type="xs:string" use="required"/>
         <xs:attribute name="type" type="fieldTypeType" use="required"/>
         <xs:attribute name="description" type="xs:string" use="optional"/>
+        <xs:attribute name="acl" type="xs:string" use="optional"/>
     </xs:complexType>
 
     <xs:complexType name="metricType">

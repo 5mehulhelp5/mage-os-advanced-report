@@ -90,6 +90,9 @@ class InitialStateResolver
         try {
             $preset = $this->registry->getPreset($code);
             $this->assertDatasetAllowed($preset->dataset);
+            if (!$this->datasetAccess->isPresetAllowed($preset)) {
+                throw $this->notFound();
+            }
 
             return [
                 'request' => $this->requestFactory->toArray($this->presetRequestBuilder->build($preset)),

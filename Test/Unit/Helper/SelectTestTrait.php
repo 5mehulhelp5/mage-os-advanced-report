@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Helper;
 
+use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\Pdo\Mysql;
 use Magento\Framework\DB\Platform\Quote;
 use Magento\Framework\DB\Select;
@@ -18,6 +19,8 @@ use Magento\Framework\DB\Select\OrderRenderer;
 use Magento\Framework\DB\Select\SelectRenderer;
 use Magento\Framework\DB\Select\UnionRenderer;
 use Magento\Framework\DB\Select\WhereRenderer;
+use MageOS\AdvancedReport\Model\Config;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use PHPUnit\Framework\MockObject\Stub;
 
 /**
@@ -61,6 +64,21 @@ trait SelectTestTrait
         );
 
         return $adapter;
+    }
+
+    /**
+     * Report connection resolving table names like the resource connection (global `db/table_prefix`).
+     */
+    protected function createReportConnection(string $tablePrefix = ''): ReportConnection
+    {
+        $resource = $this->createStub(ResourceConnection::class);
+        $resource->method('getTableName')->willReturnCallback(
+            static fn (string $name): string => $tablePrefix . $name
+        );
+        $config = $this->createStub(Config::class);
+        $config->method('getConnectionName')->willReturn('default');
+
+        return new ReportConnection($resource, $config);
     }
 
     /**

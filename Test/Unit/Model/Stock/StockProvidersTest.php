@@ -17,7 +17,7 @@ final class StockProvidersTest extends TestCase
     public function testItExposesProductIdSkuQtySourceCodeCostAndPriceColumnsFromTheLegacyTables(): void
     {
         $sql = $this->normalizeSql(
-            (new LegacyStockProvider())->getSelect($this->createSqlAdapter(), $this->dataset())
+            (new LegacyStockProvider($this->createReportConnection()))->getSelect($this->createSqlAdapter(), $this->dataset())
         );
 
         $this->assertStringContainsString('`si`.`product_id`', $sql);
@@ -35,7 +35,7 @@ final class StockProvidersTest extends TestCase
     public function testItExposesTheSameColumnsFromInventorySourceItemJoinedBySku(): void
     {
         $sql = $this->normalizeSql(
-            (new MsiStockProvider())->getSelect($this->createSqlAdapter(), $this->dataset())
+            (new MsiStockProvider($this->createReportConnection()))->getSelect($this->createSqlAdapter(), $this->dataset())
         );
 
         $this->assertStringContainsString('FROM `inventory_source_item` AS `si`', $sql);
@@ -49,7 +49,7 @@ final class StockProvidersTest extends TestCase
     public function testItExcludesSourceItemsOfDisabledSources(): void
     {
         $sql = $this->normalizeSql(
-            (new MsiStockProvider())->getSelect($this->createSqlAdapter(), $this->dataset())
+            (new MsiStockProvider($this->createReportConnection()))->getSelect($this->createSqlAdapter(), $this->dataset())
         );
 
         $this->assertStringContainsString(
@@ -61,7 +61,7 @@ final class StockProvidersTest extends TestCase
     public function testItReadsCostAndPriceAtStoreZeroJoinedOnEntityId(): void
     {
         $sql = $this->normalizeSql(
-            (new MsiStockProvider())->getSelect($this->createSqlAdapter(), $this->dataset())
+            (new MsiStockProvider($this->createReportConnection()))->getSelect($this->createSqlAdapter(), $this->dataset())
         );
 
         $this->assertStringContainsString(
@@ -76,6 +76,48 @@ final class StockProvidersTest extends TestCase
         );
         $this->assertStringContainsString("a.attribute_code = 'cost'", $sql);
         $this->assertStringContainsString("a.attribute_code = 'price'", $sql);
+    }
+
+    public function testItJoinsThePrefixedEavAndAttributeValueTablesInTheSharedStockColumns(): void
+    {
+        $sql = $this->normalizeSql(
+            (new MsiStockProvider($this->createReportConnection('pfx_')))->getSelect(
+                $this->createSqlAdapter(),
+                $this->dataset()
+            )
+        );
+
+        $this->assertStringContainsString('FROM pfx_eav_attribute AS a INNER JOIN pfx_eav_entity_type AS t', $sql);
+        $this->assertStringContainsString('LEFT JOIN `pfx_catalog_product_entity_decimal` AS `cost`', $sql);
+        $this->assertStringContainsString('LEFT JOIN `pfx_catalog_product_entity_decimal` AS `price`', $sql);
+        $this->assertStringContainsString('LEFT JOIN `pfx_catalog_product_entity_int` AS `status`', $sql);
+    }
+
+    public function testItSelectsFromThePrefixedLegacyStockItemAndProductTables(): void
+    {
+        $sql = $this->normalizeSql(
+            (new LegacyStockProvider($this->createReportConnection('pfx_')))->getSelect(
+                $this->createSqlAdapter(),
+                $this->dataset()
+            )
+        );
+
+        $this->assertStringContainsString('FROM `pfx_cataloginventory_stock_item` AS `si`', $sql);
+        $this->assertStringContainsString('INNER JOIN `pfx_catalog_product_entity` AS `e`', $sql);
+    }
+
+    public function testItSelectsFromThePrefixedMsiSourceItemSourceAndProductTables(): void
+    {
+        $sql = $this->normalizeSql(
+            (new MsiStockProvider($this->createReportConnection('pfx_')))->getSelect(
+                $this->createSqlAdapter(),
+                $this->dataset()
+            )
+        );
+
+        $this->assertStringContainsString('FROM `pfx_inventory_source_item` AS `si`', $sql);
+        $this->assertStringContainsString('INNER JOIN `pfx_inventory_source` AS `src`', $sql);
+        $this->assertStringContainsString('INNER JOIN `pfx_catalog_product_entity` AS `e`', $sql);
     }
 
     private function dataset(): Dataset

@@ -17,6 +17,11 @@ final class ModuleDependenciesTest extends TestCase
     private const string MODULE_XML_PATH = __DIR__ . '/../../../etc/module.xml';
     private const string COMPOSER_JSON_PATH = __DIR__ . '/../../../composer.json';
 
+    /** Modules whose composer package name is not the lowercased module name. */
+    private const array PACKAGE_OVERRIDES = [
+        'Magento_CatalogInventory' => 'magento/module-catalog-inventory',
+    ];
+
     public function testItDeclaresTheSameModuleDependenciesInModuleXmlSequenceAndComposerJsonRequire(): void
     {
         $document = new DOMDocument();
@@ -36,7 +41,7 @@ final class ModuleDependenciesTest extends TestCase
 
         foreach ($sequenceModules as $moduleName) {
             [$vendor, $name] = explode('_', $moduleName, 2);
-            $packageName = strtolower($vendor) . '/module-' . strtolower($name);
+            $packageName = self::PACKAGE_OVERRIDES[$moduleName] ?? strtolower($vendor) . '/module-' . strtolower($name);
 
             self::assertContains(
                 $packageName,

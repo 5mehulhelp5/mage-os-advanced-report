@@ -94,6 +94,31 @@ final class ReportConnectionTest extends TestCase
         self::assertSame($first, $provider->get());
     }
 
+    public function testItResolvesTableNamesThroughTheResourceConnectionWithTheConfiguredReportConnectionName(): void
+    {
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->expects(self::once())->method('getTableName')->with('sales_order', 'reports')
+            ->willReturn('sales_order');
+
+        self::assertSame(
+            'sales_order',
+            (new ReportConnection($resource, $this->config('reports')))->getTableName('sales_order')
+        );
+    }
+
+    public function testItReturnsThePrefixedTableNameWhenATablePrefixIsConfigured(): void
+    {
+        $resource = $this->createStub(ResourceConnection::class);
+        $resource->method('getTableName')->willReturnCallback(
+            static fn (string $table): string => 'pre_' . $table
+        );
+
+        self::assertSame(
+            'pre_sales_order_item',
+            (new ReportConnection($resource, $this->config('reports')))->getTableName('sales_order_item')
+        );
+    }
+
     private function config(string $name): Config
     {
         $config = $this->createStub(Config::class);

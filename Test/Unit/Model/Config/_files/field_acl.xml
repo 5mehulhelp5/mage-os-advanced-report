@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<config>
+    <dataset code="sales_orders" label="Orders" acl="MageOS_AdvancedReport::sales" area="sales">
+        <source name="mysql" table="sales_order" alias="main"/>
+        <field code="birth_year" label="Year of birth" type="integer" acl="Magento_Sales::actions_view">
+            <mysql expression="YEAR(main.customer_dob)"/>
+        </field>
+        <field code="status" label="Status" type="string">
+            <mysql expression="main.status"/>
+        </field>
+    </dataset>
+</config>

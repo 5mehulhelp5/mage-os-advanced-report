@@ -20,7 +20,7 @@ use MageOS\AdvancedReport\Model\Query\ResultCacheWriteGuard;
 class CsvExporter
 {
     private const string EXPORT_DIRECTORY = 'export/mageos_advancedreport';
-    private const string FORMULA_PREFIXES = '=+-@';
+    private const string FORMULA_PREFIXES = "=+-@\t\r";
 
     /**
      * @param ReportRunnerInterface $reportRunner
@@ -59,7 +59,7 @@ class CsvExporter
         $file = $directory->openFile($path, 'w');
 
         try {
-            $file->writeCsv($layout['headers'], ',', '"');
+            $file->writeCsv(array_map($this->text(...), $layout['headers']), ',', '"');
             foreach ($rows as $row) {
                 $file->writeCsv($this->buildRow($layout, $row), ',', '"');
             }

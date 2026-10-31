@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\Query;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 
 /**
@@ -22,9 +23,9 @@ use MageOS\AdvancedReport\Model\Definition\Granularity;
  *
  * When the request has a date bucket dimension, pass a {@see DateBucketAlignment} so its raw
  * value is aligned before matching: hour/day buckets are shifted by
- * {@see ComparisonPeriod::$offset}; week/month/year buckets are matched by ordinal position in
- * the {@see DateBucketSequence} generated for each period, because a fixed day offset does not
- * line up those buckets (e.g. `last_30_days` vs. the previous 30 days, or 52 weeks vs. 365 days).
+ * {@see ComparisonPeriod::$offsetDays} (previous period) or one calendar year (previous year);
+ * week/month/year buckets use a calendar shift (same bucket one year earlier, or N buckets
+ * earlier where N is the number of buckets of the current range).
  */
 class ComparisonMerger
 {
@@ -92,41 +93,77 @@ class ComparisonMerger
         return match ($alignment->granularity) {
             Granularity::HOUR => $this->shiftByOffset($currentKey, 'Y-m-d H:00', $alignment),
             Granularity::DAY => $this->shiftByOffset($currentKey, 'Y-m-d', $alignment),
-            Granularity::WEEK, Granularity::MONTH, Granularity::YEAR => $this->shiftByOrdinal($currentKey, $alignment),
+            Granularity::WEEK, Granularity::MONTH, Granularity::YEAR => $this->shiftByCalendar($currentKey, $alignment),
         };
     }
 
     private function shiftByOffset(string $currentKey, string $format, DateBucketAlignment $alignment): string
     {
-        $date = DateTimeImmutable::createFromFormat($format, $currentKey);
+        // Bucket keys are naive local strings: parse them in UTC so no DST conversion applies.
+        $date = DateTimeImmutable::createFromFormat($format, $currentKey, new DateTimeZone('UTC'));
         if ($date === false) {
             return $currentKey;
         }
 
-        return $date->sub($alignment->comparisonPeriod->offset)->format($format);
+        $period = $alignment->comparisonPeriod;
+        $shifted = $period->mode === CompareMode::PREVIOUS_YEAR
+            ? CalendarYear::subtract($date)
+            : $date->modify(\sprintf('-%d days', $period->offsetDays));
+
+        return $shifted->format($format);
     }
 
     /**
-     * Maps `$currentKey` to the bucket at the same ordinal position in the comparison period's
-     * expected bucket sequence: a fixed offset does not line up week/month/year buckets (e.g.
-     * `last_30_days` vs. the previous 30 days).
+     * Calendar shift of a week/month/year bucket key. Previous year: the same bucket one year
+     * earlier (weeks: the week containing the same date one year earlier, so two adjacent weeks
+     * can occasionally map onto the same previous-year week). Previous period: the bucket N
+     * buckets earlier, N being the number of buckets the current range spans.
      */
-    private function shiftByOrdinal(string $currentKey, DateBucketAlignment $alignment): ?string
+    private function shiftByCalendar(string $currentKey, DateBucketAlignment $alignment): ?string
     {
-        $currentSequence = $this->bucketSequence->generate(
+        $format = match ($alignment->granularity) {
+            Granularity::MONTH => '!Y-m',
+            Granularity::YEAR => '!Y',
+            default => '!Y-m-d',
+        };
+        $date = DateTimeImmutable::createFromFormat($format, $currentKey, new DateTimeZone('UTC'));
+        if ($date === false) {
+            return null;
+        }
+
+        $shifted = $alignment->comparisonPeriod->mode === CompareMode::PREVIOUS_YEAR
+            ? $this->subtractYear($date, $alignment)
+            : $this->subtractBuckets($date, $alignment);
+
+        return $shifted->format(match ($alignment->granularity) {
+            Granularity::MONTH => 'Y-m',
+            Granularity::YEAR => 'Y',
+            default => 'Y-m-d',
+        });
+    }
+
+    private function subtractYear(DateTimeImmutable $date, DateBucketAlignment $alignment): DateTimeImmutable
+    {
+        $shifted = CalendarYear::subtract($date);
+
+        return $alignment->granularity === Granularity::WEEK
+            ? $this->bucketSequence->weekStart($shifted, $alignment->firstDayOfWeek)
+            : $shifted;
+    }
+
+    private function subtractBuckets(DateTimeImmutable $date, DateBucketAlignment $alignment): DateTimeImmutable
+    {
+        $count = \count($this->bucketSequence->generate(
             $alignment->currentRange,
             $alignment->granularity,
             $alignment->firstDayOfWeek,
-        );
-        $comparisonSequence = $this->bucketSequence->generate(
-            $alignment->comparisonPeriod->range,
-            $alignment->granularity,
-            $alignment->firstDayOfWeek,
-        );
+        ));
 
-        $position = array_search($currentKey, $currentSequence, true);
-
-        return $position === false ? null : ($comparisonSequence[$position] ?? null);
+        return match ($alignment->granularity) {
+            Granularity::WEEK => $date->modify(\sprintf('-%d weeks', $count)),
+            Granularity::MONTH => $date->modify(\sprintf('-%d months', $count)),
+            default => $date->modify(\sprintf('-%d years', $count)),
+        };
     }
 
     /**
@@ -142,7 +179,7 @@ class ComparisonMerger
             $current = $this->toFloat($currentMetrics[$metricCode] ?? null);
             $previous = $comparisonMetrics !== null ? $this->toFloat($comparisonMetrics[$metricCode] ?? null) : null;
             $delta = ($current !== null && $previous !== null) ? $current - $previous : null;
-            $deltaPct = ($delta !== null && $previous !== 0.0) ? $delta / $previous : null;
+            $deltaPct = ($delta !== null && $previous !== null && $previous !== 0.0) ? $delta / abs($previous) : null;
 
             $comparison[$metricCode] = ['value' => $previous, 'delta' => $delta, 'delta_pct' => $deltaPct];
         }

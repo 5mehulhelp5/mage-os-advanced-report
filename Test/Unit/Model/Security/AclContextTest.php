@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(AclContext::class)]
 final class AclContextTest extends TestCase
 {
-    private const array RESOURCES = ['MageOS_AdvancedReport::orders', 'Magento_Sales::sales_order'];
+    private const array RESOURCES = ['MageOS_AdvancedReport::orders', 'Magento_Sales::sales_order', 'Magento_Customer::manage'];
 
     public function testItProducesTheSameFingerprintForIdenticalPermissions(): void
     {
@@ -38,6 +38,16 @@ final class AclContextTest extends TestCase
         self::assertNotSame(
             $this->context(['Magento_Sales::sales_order'])->getFingerprint(),
             $this->context([])->getFingerprint(),
+        );
+    }
+
+    public function testItProducesDifferentAclFingerprintsForAdminsDifferingOnlyByAFieldAcl(): void
+    {
+        $base = ['MageOS_AdvancedReport::orders', 'Magento_Sales::sales_order'];
+
+        self::assertNotSame(
+            $this->context([...$base, 'Magento_Customer::manage'])->getFingerprint(),
+            $this->context($base)->getFingerprint(),
         );
     }
 

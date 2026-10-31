@@ -39,6 +39,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
         private readonly DatasetAccess $datasetAccess,
         private readonly DefinitionRegistry $definitionRegistry,
         private readonly Config $config,
+        private readonly BundleChildUnitsLoader $bundleChildUnitsLoader,
     ) {
     }
 
@@ -48,10 +49,10 @@ class LowStockCoverageQuery implements PresetQueryInterface
         $stockRows = $stock->rows;
         $statements = (int) ($stock->meta['sql_query_count'] ?? 0);
 
-        $warnings = [];
+        $warnings = $stock->warnings;
         $unitsSold = null;
         if ($this->datasetAccess->isAllowed($this->definitionRegistry->getDataset(self::SALES_DATASET))) {
-            $unitsSold = $this->loadUnitsSold($request, $statements);
+            $unitsSold = $this->loadUnitsSold($request, $resolvedQuery, $statements, $warnings);
         } else {
             $warnings[] = (string) new Phrase(
                 'Sales data is not available with your permissions: coverage columns are empty.'
@@ -74,7 +75,7 @@ class LowStockCoverageQuery implements PresetQueryInterface
                 'qty_on_hand' => array_sum(array_column(array_column($rows, 'metrics'), 'qty_on_hand')),
             ]],
             \count($rows),
-            $warnings,
+            array_values(array_unique($warnings)),
             ['sql_query_count' => $statements],
         );
     }
@@ -122,10 +123,15 @@ class LowStockCoverageQuery implements PresetQueryInterface
 
     /**
      * @param int $statements Incremented by the SQL statements of the nested sales report
-     * @return array<string,float> Units sold in the window, by simple SKU.
+     * @param string[] $warnings Receives the warnings of the nested queries
+     * @return array<string,float> Units sold in the window, by simple SKU, bundle children included.
      */
-    private function loadUnitsSold(ReportRequestInterface $request, int &$statements): array
-    {
+    private function loadUnitsSold(
+        ReportRequestInterface $request,
+        ResolvedQuery $resolvedQuery,
+        int &$statements,
+        array &$warnings,
+    ): array {
         $salesRequest = $this->reportRequestFactory->fromArray([
             'dataset' => self::SALES_DATASET,
             'metrics' => ['units_sold'],
@@ -138,8 +144,16 @@ class LowStockCoverageQuery implements PresetQueryInterface
         $unitsSold = [];
         $salesResult = $this->reportRunner->run($salesRequest);
         $statements += (int) ($salesResult->getMeta()['sql_query_count'] ?? 0);
+        array_push($warnings, ...$salesResult->getWarnings());
         foreach ($salesResult->getRows() as $row) {
             $unitsSold[(string) $row['dims_raw']['sku']] = (float) ($row['metrics']['units_sold'] ?? 0);
+        }
+
+        $bundleChildren = $this->bundleChildUnitsLoader->load($request->getStoreIds(), $resolvedQuery->scope);
+        $statements++;
+        array_push($warnings, ...$bundleChildren['warnings']);
+        foreach ($bundleChildren['units'] as $sku => $units) {
+            $unitsSold[(string) $sku] = ($unitsSold[(string) $sku] ?? 0.0) + $units;
         }
 
         return $unitsSold;

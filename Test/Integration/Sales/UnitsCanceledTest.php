@@ -106,10 +106,11 @@ final class UnitsCanceledTest extends TestCase
     #[Config('mageos_advancedreport/sales/counted_statuses', self::COUNTED)]
     public function testItCancelsTwoOfThreeUnitsOfThePartiallyInvoicedOrderX(): void
     {
-        $connection = Bootstrap::getObjectManager()->get(ResourceConnection::class)->getConnection();
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $connection = $resource->getConnection();
         $row = $connection->fetchRow(
-            'SELECT o.status, i.qty_ordered, i.qty_invoiced, i.qty_canceled FROM sales_order AS o'
-            . ' JOIN sales_order_item AS i ON i.order_id = o.entity_id WHERE o.customer_email = ?',
+            'SELECT o.status, i.qty_ordered, i.qty_invoiced, i.qty_canceled FROM ' . $resource->getTableName('sales_order') . ' AS o'
+            . ' JOIN ' . $resource->getTableName('sales_order_item') . ' AS i ON i.order_id = o.entity_id WHERE o.customer_email = ?',
             ['ar-uc-x@example.com']
         );
 

@@ -12,6 +12,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\DataSourcePool;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
+use MageOS\AdvancedReport\Model\Preset\BundleChildUnitsLoader;
 use MageOS\AdvancedReport\Model\Preset\LowStockCoverageQuery;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\RawResult;
@@ -59,7 +60,7 @@ final class LowStockCoverageQueryTest extends TestCase
 
         $result = $this->createQuery([['A', 10.0]], $runner, true)->execute($this->request([]), $this->resolvedQuery([]));
 
-        self::assertSame(7, $result->meta['sql_query_count']);
+        self::assertSame(8, $result->meta['sql_query_count']);
     }
 
     public function testItReturnsNullCoverageForProductsWithoutSales(): void
@@ -165,6 +166,46 @@ final class LowStockCoverageQueryTest extends TestCase
         self::assertSame(60.0, $result->rows[0]['metrics']['units_sold_30d']);
     }
 
+    public function testItPropagatesTheTruncationWarningWhenTheInnerStockQueryHitsMaxRows(): void
+    {
+        $warning = 'Results were truncated to the first 5000 rows. Narrow the date range or add filters.';
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturn($this->salesResult([]));
+
+        $query = $this->createQuery([['A', 10.0]], $runner, true, null, [], [$warning]);
+        $result = $query->execute($this->request([]), $this->resolvedQuery([]));
+
+        self::assertSame([$warning], $result->warnings);
+    }
+
+    public function testItPropagatesTheTruncationWarningWhenTheInnerSalesQueryHitsMaxRows(): void
+    {
+        $warning = 'Results were truncated to the first 5000 rows. Narrow the date range or add filters.';
+        $sales = $this->createStub(ReportResultInterface::class);
+        $sales->method('getRows')->willReturn([]);
+        $sales->method('getWarnings')->willReturn([$warning]);
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturn($sales);
+
+        $result = $this->createQuery([['A', 10.0]], $runner, true)->execute($this->request([]), $this->resolvedQuery([]));
+
+        self::assertSame([$warning], $result->warnings);
+    }
+
+    public function testItAddsTheUnitsSoldInsideBundlesToTheTopLevelUnits(): void
+    {
+        $runner = $this->createStub(ReportRunnerInterface::class);
+        $runner->method('run')->willReturn($this->salesResult([['sku' => 'A', 'units' => 60.0]]));
+        $bundleWarning = 'bundle truncated';
+
+        $query = $this->createQuery([['A', 10.0], ['B', 10.0]], $runner, true, null, [], [], ['A' => 30.0, 'B' => 3.0], [$bundleWarning]);
+        $result = $query->execute($this->request([2]), $this->resolvedQuery([2]));
+
+        self::assertSame(90.0, $result->rows[0]['metrics']['units_sold_30d']);
+        self::assertSame(3.0, $result->rows[1]['metrics']['units_sold_30d']);
+        self::assertSame([$bundleWarning], $result->warnings);
+    }
+
     /**
      * @param \ArrayObject<int,ResolvedQuery> $captured
      */
@@ -180,6 +221,9 @@ final class LowStockCoverageQueryTest extends TestCase
      * @param array<int,array{0:string,1:float}> $stock
      * @param \ArrayObject<int,ResolvedQuery>|null $captured Receives the queries sent to the stock source.
      * @param array<string,array{0:string,1:string}> $products Product name and id by SKU.
+     * @param string[] $stockWarnings Warnings of the stock source.
+     * @param array<string,float> $bundleUnits Units sold inside bundles, by SKU.
+     * @param string[] $bundleWarnings
      */
     private function createQuery(
         array $stock,
@@ -187,6 +231,9 @@ final class LowStockCoverageQueryTest extends TestCase
         bool $salesAllowed,
         ?\ArrayObject $captured = null,
         array $products = [],
+        array $stockWarnings = [],
+        array $bundleUnits = [],
+        array $bundleWarnings = [],
     ): LowStockCoverageQuery {
         $rows = array_map(
             static fn (array $item): array => [
@@ -198,10 +245,10 @@ final class LowStockCoverageQueryTest extends TestCase
         );
         $source = $this->createStub(DataSourceInterface::class);
         $source->method('execute')->willReturnCallback(
-            static function (ReportRequestInterface $request, ResolvedQuery $query) use ($rows, $captured): RawResult {
+            static function (ReportRequestInterface $request, ResolvedQuery $query) use ($rows, $captured, $stockWarnings): RawResult {
                 $captured?->append($query);
 
-                return new RawResult($rows, ['metrics' => []], \count($rows), [], ['sql_query_count' => 3]);
+                return new RawResult($rows, ['metrics' => []], \count($rows), $stockWarnings, ['sql_query_count' => 3]);
             }
         );
         $pool = $this->createStub(DataSourcePool::class);
@@ -217,7 +264,18 @@ final class LowStockCoverageQueryTest extends TestCase
         $config = $this->createStub(Config::class);
         $config->method('getMaxRows')->willReturn(5000);
 
-        return new LowStockCoverageQuery($pool, $runner, new ReportRequestFactory(), $datasetAccess, $registry, $config);
+        $bundleLoader = $this->createStub(BundleChildUnitsLoader::class);
+        $bundleLoader->method('load')->willReturn(['units' => $bundleUnits, 'warnings' => $bundleWarnings]);
+
+        return new LowStockCoverageQuery(
+            $pool,
+            $runner,
+            new ReportRequestFactory(),
+            $datasetAccess,
+            $registry,
+            $config,
+            $bundleLoader,
+        );
     }
 
     /**

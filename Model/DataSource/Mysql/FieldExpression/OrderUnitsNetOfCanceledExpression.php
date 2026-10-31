@@ -7,6 +7,7 @@ namespace MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression;
 use InvalidArgumentException;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -17,6 +18,10 @@ use MageOS\AdvancedReport\Model\Definition\Dataset;
  */
 class OrderUnitsNetOfCanceledExpression implements FieldExpressionProviderInterface
 {
+    public function __construct(private readonly ReportConnection $reportConnection)
+    {
+    }
+
     /**
      * @inheritDoc
      */
@@ -28,7 +33,7 @@ class OrderUnitsNetOfCanceledExpression implements FieldExpressionProviderInterf
             '(COALESCE(%1$s.total_qty_ordered, 0) - (SELECT COALESCE(SUM(oi.qty_canceled), 0) FROM %2$s AS oi'
             . ' WHERE oi.order_id = %1$s.entity_id AND oi.parent_item_id IS NULL))',
             $alias,
-            $connection->getTableName('sales_order_item')
+            $this->reportConnection->getTableName('sales_order_item')
         );
     }
 

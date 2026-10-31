@@ -9,6 +9,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\BaseSelectProviderInterface;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 
 /**
@@ -28,11 +29,13 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
     private const string XML_PATH_MIN_QTY = 'cataloginventory/item_options/min_qty';
 
     /**
+     * @param ReportConnection $reportConnection
      * @param ScopeConfigInterface $scopeConfig
      * @param Guardrails $guardrails
      * @param string[] $excludedProductTypes
      */
     public function __construct(
+        private readonly ReportConnection $reportConnection,
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly Guardrails $guardrails,
         private readonly array $excludedProductTypes = []
@@ -55,7 +58,7 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
         $select = $connection->select()
             ->from(['s' => $index], ['stock_id' => 's.stock_id', 'stock_qty' => 's.stock_qty'])
             ->join(
-                ['e' => $connection->getTableName('catalog_product_entity')],
+                ['e' => $this->reportConnection->getTableName('catalog_product_entity')],
                 'e.sku = s.sku',
                 ['sku' => 'e.sku', 'product_id' => 'e.entity_id']
             )
@@ -65,7 +68,7 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
                 []
             )
             ->joinLeft(
-                ['si' => $connection->getTableName('cataloginventory_stock_item')],
+                ['si' => $this->reportConnection->getTableName('cataloginventory_stock_item')],
                 'si.product_id = e.entity_id AND si.website_id = 0',
                 []
             )
@@ -88,12 +91,12 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
      */
     private function getIndexSelects(AdapterInterface $connection): array
     {
-        $stockSelect = $connection->select()->from($connection->getTableName('inventory_stock'), ['stock_id']);
+        $stockSelect = $connection->select()->from($this->reportConnection->getTableName('inventory_stock'), ['stock_id']);
         $stockIds = $connection->fetchCol($this->guardrails->applyTimeout((string) $stockSelect));
         $selects = [];
         foreach ($stockIds as $stockId) {
             $stockId = (int) $stockId;
-            $table = $connection->getTableName('inventory_stock_' . $stockId);
+            $table = $this->reportConnection->getTableName('inventory_stock_' . $stockId);
             if ($stockId !== self::DEFAULT_STOCK_ID && !$connection->isTableExists($table)) {
                 continue;
             }
@@ -119,7 +122,7 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
     {
         return $connection->select()
             ->from(
-                $connection->getTableName('inventory_reservation'),
+                $this->reportConnection->getTableName('inventory_reservation'),
                 [
                     'stock_id' => 'stock_id',
                     'sku' => 'sku',
@@ -132,7 +135,7 @@ class SalableStockSelectProvider implements BaseSelectProviderInterface
     private function getEmptySelect(AdapterInterface $connection): Select
     {
         return $connection->select()->from(
-            $connection->getTableName('inventory_stock'),
+            $this->reportConnection->getTableName('inventory_stock'),
             [
                 'stock_id' => new \Zend_Db_Expr('NULL'),
                 'sku' => new \Zend_Db_Expr('NULL'),

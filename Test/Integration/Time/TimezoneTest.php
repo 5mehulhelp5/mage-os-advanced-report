@@ -12,6 +12,7 @@ use Magento\Checkout\Test\Fixture\SetDeliveryMethod;
 use Magento\Checkout\Test\Fixture\SetGuestEmail;
 use Magento\Checkout\Test\Fixture\SetPaymentMethod;
 use Magento\Checkout\Test\Fixture\SetShippingAddress;
+use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Stdlib\DateTime\DateTime;
 use Magento\Quote\Test\Fixture\AddProductToCart;
 use Magento\Quote\Test\Fixture\GuestCart;
@@ -291,6 +292,29 @@ final class TimezoneTest extends TestCase
         ]);
 
         // all stores: default store (Rome, orders 1 and 2) and second website store (UTC, order 3)
+        $days = $this->ordersByDay('2026-06-09', '2026-06-12', []);
+
+        $this->assertSame(['2026-06-10' => 1, '2026-06-11' => 2], $days);
+    }
+
+    #[
+        Config('general/locale/timezone', 'UTC'),
+        Config('general/locale/timezone', 'Europe/Rome', 'website', 'base'),
+        Config('general/locale/timezone', 'Asia/Tokyo', 'website', 'ar_website_2'),
+    ]
+    public function testItKeepsOrdersOfDeletedStoresInAllStoresReportsAcrossTimezones(): void
+    {
+        $this->setCreatedAt(1, '2026-06-10 22:30:00');
+        $this->setCreatedAt(2, '2026-06-10 22:30:00');
+        $this->setCreatedAt(3, '2026-06-10 22:30:00');
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $resource->getConnection()->update(
+            $resource->getTableName('sales_order'),
+            ['store_id' => null],
+            ['entity_id = ?' => $this->orderId(3)]
+        );
+
+        // all stores: Rome (orders 1 and 2 -> 06-11) and Tokyo; order 3 has no store: default scope timezone (UTC)
         $days = $this->ordersByDay('2026-06-09', '2026-06-12', []);
 
         $this->assertSame(['2026-06-10' => 1, '2026-06-11' => 2], $days);

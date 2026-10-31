@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
 use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\DB\Sql\Expression;
 use MageOS\AdvancedReport\Model\Definition\FilterOperator;
+use MageOS\AdvancedReport\Model\Definition\Join;
 use MageOS\AdvancedReport\Model\Query\FilterCondition;
 
 /**
@@ -42,5 +44,37 @@ class UserFilterBuilder
         };
 
         return $connection->quoteInto(\sprintf($template, $expression), $value);
+    }
+
+    /**
+     * EXISTS / NOT EXISTS subquery over a many-cardinality join: the join condition correlates the
+     * subquery with the base row. `neq` / `nin` become NOT EXISTS of the positive comparison, so base
+     * rows without any joined row are kept.
+     *
+     * @param FilterCondition $filter
+     * @param string $expression
+     * @param Join $join
+     * @param string $table Resolved (prefixed) name of the join table.
+     * @param AdapterInterface $connection
+     */
+    public function buildExists(
+        FilterCondition $filter,
+        string $expression,
+        Join $join,
+        string $table,
+        AdapterInterface $connection
+    ): string {
+        $negated = \in_array($filter->operator, [FilterOperator::NEQ, FilterOperator::NIN], true);
+        $positive = new FilterCondition($filter->field, match ($filter->operator) {
+            FilterOperator::NEQ => FilterOperator::EQ,
+            FilterOperator::NIN => FilterOperator::IN,
+            default => $filter->operator,
+        }, $filter->value);
+        $subquery = $connection->select()
+            ->from([$join->alias => $table], [new Expression('1')])
+            ->where($join->condition)
+            ->where($this->build($positive, $expression, $connection));
+
+        return ($negated ? 'NOT ' : '') . 'EXISTS (' . $subquery . ')';
     }
 }

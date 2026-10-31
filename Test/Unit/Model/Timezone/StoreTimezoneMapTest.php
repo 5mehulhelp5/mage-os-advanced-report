@@ -19,8 +19,9 @@ final class StoreTimezoneMapTest extends TestCase
 {
     /**
      * @param array<int,string> $storeTimezones store id => timezone (website id equals store id)
+     * @param string $defaultTimezone Timezone configured at default scope
      */
-    private function map(array $storeTimezones): StoreTimezoneMap
+    private function map(array $storeTimezones, string $defaultTimezone = 'UTC'): StoreTimezoneMap
     {
         $stores = [];
         foreach (array_keys($storeTimezones) as $id) {
@@ -34,10 +35,12 @@ final class StoreTimezoneMapTest extends TestCase
         $storeManager->method('getStores')->willReturn($stores);
         $config = $this->createStub(ScopeConfigInterface::class);
         $config->method('getValue')->willReturnCallback(
-            static fn ($path, $scope, $scopeId) => $path === 'general/locale/timezone'
-                && $scope === ScopeInterface::SCOPE_WEBSITES
-                ? $storeTimezones[(int)$scopeId]
-                : null
+            static fn ($path, $scope = 'default', $scopeId = null) => match (true) {
+                $path !== 'general/locale/timezone' => null,
+                $scope === ScopeInterface::SCOPE_WEBSITES => $storeTimezones[(int)$scopeId],
+                $scope === ScopeConfigInterface::SCOPE_TYPE_DEFAULT => $defaultTimezone,
+                default => null,
+            }
         );
 
         return new StoreTimezoneMap($storeManager, $config);
@@ -110,6 +113,61 @@ final class StoreTimezoneMapTest extends TestCase
         self::assertSame(
             ['from' => '2025-03-28 23:00:00', 'to' => '2025-03-31 22:00:00'],
             $map->toUtcRange($this->range('2025-03-29', '2025-03-31'), [1])
+        );
+    }
+
+    public function testItEndsTheLastDayOfARangeAtTheNextLocalMidnightWhenDstStartsAtMidnight(): void
+    {
+        $map = $this->map([1 => 'America/Santiago']);
+
+        // Santiago: 2025-09-07 00:00 does not exist (clocks jump to 01:00, UTC-4 -> UTC-3).
+        // The last day (09-06) must end at the next local midnight 09-08 00:00 (-03) = 03:00 UTC.
+        self::assertSame(
+            ['from' => '2025-09-06 04:00:00', 'to' => '2025-09-08 03:00:00'],
+            $map->toUtcRange($this->range('2025-09-06', '2025-09-07'), [1])
+        );
+    }
+
+    public function testItStartsARangeAt0100LocalTimeWhenTheLocalMidnightDoesNotExist(): void
+    {
+        $map = $this->map([1 => 'America/Santiago']);
+
+        // 2025-09-07 01:00 -03 = 04:00 UTC
+        self::assertSame(
+            ['from' => '2025-09-07 04:00:00', 'to' => '2025-09-08 03:00:00'],
+            $map->toUtcRange($this->range('2025-09-07', '2025-09-07'), [1])
+        );
+    }
+
+    public function testItResolvesTheDefaultScopeTimezone(): void
+    {
+        $map = $this->map([1 => 'Europe/Rome'], 'America/New_York');
+
+        self::assertSame('America/New_York', $map->getDefaultTimezone());
+    }
+
+    public function testItWidensTheAllStoresUtcRangeToCoverTheDefaultTimezone(): void
+    {
+        $map = $this->map([1 => 'Europe/Rome', 2 => 'UTC'], 'Pacific/Auckland');
+
+        // Auckland (+12 in January) starts earliest: 2025-01-09 11:00 UTC
+        self::assertSame(
+            ['from' => '2025-01-09 11:00:00', 'to' => '2025-01-11 00:00:00'],
+            $map->toUtcRange($this->range('2025-01-10', '2025-01-10'), [])
+        );
+        self::assertSame(
+            ['from' => '2025-01-09 23:00:00', 'to' => '2025-01-11 00:00:00'],
+            $map->toUtcRange($this->range('2025-01-10', '2025-01-10'), [1, 2])
+        );
+    }
+
+    public function testItConvertsTheRangeInTheDefaultTimezone(): void
+    {
+        $map = $this->map([1 => 'Europe/Rome'], 'America/New_York');
+
+        self::assertSame(
+            ['from' => '2025-01-10 05:00:00', 'to' => '2025-01-11 05:00:00'],
+            $map->toUtcRangeInDefaultTimezone($this->range('2025-01-10', '2025-01-10'))
         );
     }
 

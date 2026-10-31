@@ -32,7 +32,7 @@ the same conversion as above. The abandoned and recent thresholds are not store 
 
 ### Grouping
 
-Buckets (hour, day, week, month, quarter, year) are computed on the local time: `CONVERT_TZ(created_at, 'UTC', <tz>)`.
+Buckets (hour, day, week, month, year; there is no quarter granularity) are computed on the local time: `CONVERT_TZ(created_at, 'UTC', <tz>)`.
 When the scope spans several timezones, each store is bucketed in **its own local time** (a `CASE store_id` per
 timezone), so an order belongs to the local day of the store that took it. This is intentional (R35).
 
@@ -63,17 +63,38 @@ grouping, the fallback re-aggregation, the empty bucket filler and comparison pe
 
 A comparison period is built from the same **local dates** logic and shares the scope of the main period:
 
-- Previous period: the range of the same length immediately before the main range.
-- Previous year: the same dates one year earlier; 29 February is clamped to 28 February.
+- Previous period: the range of the same length immediately before the main range. The length is counted in calendar
+  dates, so a daylight saving change inside the range never shifts it by a fraction of a day. When the main range is made
+  of whole calendar months (including whole years), the previous period is the preceding N whole months instead (March
+  compared with February, not with the last 31 days).
+- Previous year: the same calendar dates one year earlier; 29 February is clamped to 28 February.
 
-Both are filtered, grouped and gap filled exactly like the main period. The currency policy is also shared: the
-comparison period is probed too (see [Currency](#currency)).
+Both are filtered and grouped like the main period, and the currency policy is shared: the comparison period is probed
+too (see [Currency](#currency)).
+
+How comparison rows are matched to the current rows:
+
+- With **one date dimension** (hour, day, week, month or year), the current bucket is shifted and looked up in the
+  comparison result: hour and day buckets by the day offset of the comparison (previous period) or by one calendar year
+  (previous year); week, month and year buckets by the calendar: the same bucket one year earlier, or N buckets earlier
+  (N being the number of buckets of the current range) for the previous period. A week of the current year can map onto
+  the same previous-year week as its neighbour in rare cases.
+- The comparison rows are **not gap filled**: the current rows drive the table, so a bucket that has no match in the
+  comparison period shows a null comparison value (and a null delta), and comparison buckets without a current row are
+  dropped.
+- When a date dimension is **combined with another dimension**, the buckets are not aligned: the raw date keys are
+  compared as they are, so the comparison values are null for every date row. Use a single date dimension, or a
+  dimension without a date, for comparisons.
+- Dimensions are matched by their raw values (ids), never by labels.
+- `delta` is current minus previous; `delta_pct` is `delta / ABS(previous)` as a ratio (0.25 means +25 %), and null when
+  the previous value is zero or missing.
+- Metrics can not be filtered: filters apply to fields only (a derived metric such as `aov` is not a field).
 
 ### Display
 
 Dates are shown as the **local bucket keys**: hour `Y-m-d H:i`, day and week `Y-m-d` (week = first day of the week),
 month `Y-m`. They are not converted back to the viewer timezone. `generated_at` in the result meta is the generation
-instant of the result, independent of the report timezone. Empty buckets are zero filled.
+instant of the result, independent of the report timezone. Empty buckets of the current period are zero filled.
 
 ### Daylight saving time
 

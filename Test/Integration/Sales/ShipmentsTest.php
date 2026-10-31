@@ -200,11 +200,12 @@ final class ShipmentsTest extends TestCase
     private function shipmentCreatedAt(string $alias): string
     {
         $shipmentId = (int) DataFixtureStorageManager::getStorage()->get($alias)->getId();
-        $connection = Bootstrap::getObjectManager()->get(ResourceConnection::class)->getConnection();
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $connection = $resource->getConnection();
 
         return (string) $connection->fetchOne(
             $connection->select()
-                ->from($connection->getTableName('sales_shipment'), 'created_at')
+                ->from($resource->getTableName('sales_shipment'), 'created_at')
                 ->where('entity_id = ?', $shipmentId)
         );
     }

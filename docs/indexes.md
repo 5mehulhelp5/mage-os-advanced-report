@@ -4,7 +4,16 @@ Every statement is `EXPLAIN`ed by `bin/magento advanced-report:explain --format=
 asserts that each index below is listed in `possible_keys` of the statement it serves (not in `key`: the integration data is tiny).
 
 Indexes are declared in `etc/db_schema.xml` on core tables (`sales_order`, `sales_order_item`) and whitelisted in
-`etc/db_schema_whitelist.json`. Nothing is ever dropped by the module.
+`etc/db_schema_whitelist.json`.
+
+## Disabling the module
+
+The module never drops anything by itself at runtime. However, the indexes and the table are declared in `etc/db_schema.xml`:
+after `bin/magento module:disable MageOS_AdvancedReport` followed by `bin/magento setup:upgrade`, the declarative schema no
+longer sees the declaration and drops the table `mageos_advancedreport_saved` (all saved reports are lost) and every module
+index on core tables (`SALES_ORDER_CUSTOMER_ID_CREATED_AT`, `SALES_ORDER_CUSTOMER_EMAIL_CREATED_AT`, `SALES_ORDER_ITEM_PRODUCT_ID`,
+`SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID`, `QUOTE_UPDATED_AT`). Core indexes and core tables are untouched. Back up
+`mageos_advancedreport_saved` before disabling if the saved reports are needed again.
 
 ## Module indexes
 
@@ -25,14 +34,14 @@ Indexes are declared in `etc/db_schema.xml` on core tables (`sales_order`, `sale
 ### SALES_ORDER_ITEM_PRODUCT_ID
 
 - Table / columns: `sales_order_item (product_id)`
-- Serves: item level product joins and the stock anti joins (`dead_stock`, `never_sold`): `WHERE i.product_id = s.product_id`.
+- Serves: item level product joins and the stock anti joins (`dead_stock`, `never_sold`): `WHERE i.product_id = main.product_id`.
 - Rationale: core only indexes `order_id` and `store_id` on items.
-- Status: superseded by `SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID` (leftmost prefix), see "Removable indexes".
+- Status: shipped, but redundant on the access paths of this module: its columns are the leftmost prefix of `SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID`, which serves the same lookups. It is kept in the schema (no schema change) so that item level product joins outside the shipped statements keep a narrow index; see "Removable indexes".
 
 ### SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID
 
 - Table / columns: `sales_order_item (product_id, order_id)`
-- Serves: `AbstractStockAntiJoinQuery::orderItemsOf()` (`dead_stock` recent-sale `NOT EXISTS`, `days_since_last_sale`, `never_sold`): `FROM sales_order_item i JOIN sales_order o ON o.entity_id = i.order_id WHERE i.product_id = s.product_id`.
+- Serves: `AbstractStockAntiJoinQuery::orderItemsOf()` (`dead_stock` recent-sale `NOT EXISTS`, `days_since_last_sale`, `never_sold`): `FROM sales_order_item i JOIN sales_order o ON o.entity_id = i.order_id WHERE i.product_id = main.product_id`.
 - Rationale: the join column `order_id` is in the index, so the item side is read from the index alone (covering) and only the order primary key is then probed.
 - Write overhead: one extra entry per order item insert (two integers plus the primary key).
 
@@ -73,7 +82,7 @@ Indexes are declared in `etc/db_schema.xml` on core tables (`sales_order`, `sale
 
 ## Removable indexes
 
-These are not needed by any shipped statement. They are documented only: the module never drops an index, and removing them is an operator decision.
+These are not needed by any shipped statement. They are documented only: the module never drops an index while enabled (see "Disabling the module"), and removing them is an operator decision.
 
 - `SALES_ORDER_ITEM_PRODUCT_ID` (module): redundant, its columns are the leftmost prefix of `SALES_ORDER_ITEM_PRODUCT_ID_ORDER_ID`. Removing it saves one B-tree entry per order item insert.
 - `SALES_ORDER_CUSTOMER_ID` (core): prefix of `SALES_ORDER_CUSTOMER_ID_CREATED_AT`. Core code (foreign key on `customer_id`) relies on it; keep it.

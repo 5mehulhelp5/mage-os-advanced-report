@@ -11,10 +11,16 @@ use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\LabelResolverInterface;
 use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\CountedStatusCondition;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\Guardrails;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\ReportConnection;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\UserFilterBuilder;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Dimension;
+use MageOS\AdvancedReport\Model\Definition\Field;
+use MageOS\AdvancedReport\Model\Definition\FieldType;
+use MageOS\AdvancedReport\Model\Definition\FilterOperator;
+use MageOS\AdvancedReport\Model\Definition\SourceMapping;
 use MageOS\AdvancedReport\Model\Label\DimensionLabelApplier;
 use MageOS\AdvancedReport\Model\Label\LabelResolverPool;
 use MageOS\AdvancedReport\Model\Label\ProductNameLabelResolver;
@@ -22,6 +28,7 @@ use MageOS\AdvancedReport\Model\Preset\AbstractStockAntiJoinQuery;
 use MageOS\AdvancedReport\Model\Preset\DeadStockQuery;
 use MageOS\AdvancedReport\Model\Preset\NeverSoldQuery;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
+use MageOS\AdvancedReport\Model\Query\FilterCondition;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportScope;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
@@ -47,12 +54,21 @@ final class StockAntiJoinQueryTest extends TestCase
         $select = $this->build(DeadStockQuery::class)->getSelect($this->resolved());
         $sql = $this->normalizeSql($select);
 
-        self::assertStringContainsString('s.qty > 0', $sql);
+        self::assertStringContainsString('main.qty > 0', $sql);
         self::assertStringContainsString('NOT EXISTS (SELECT 1 FROM sales_order_item AS i JOIN sales_order AS o', $sql);
-        self::assertStringContainsString('i.product_id = s.product_id AND o.created_at >= :utcSince', $sql);
+        self::assertStringContainsString('i.product_id = main.product_id AND o.created_at >= :utcSince', $sql);
         self::assertStringContainsString("o.status NOT IN ('canceled')", $sql);
         $since = strtotime((string) $select->getBind()['utcSince'] . ' UTC');
         self::assertEqualsWithDelta(time() - 90 * 86400, $since, 5);
+    }
+
+    public function testItReadsPrefixedSalesOrderItemAndSalesOrderTablesInTheStockAntiJoinQuery(): void
+    {
+        $dead = $this->normalizeSql($this->build(DeadStockQuery::class, 'pfx_')->getSelect($this->resolved()));
+        $never = $this->normalizeSql($this->build(NeverSoldQuery::class, 'pfx_')->getSelect($this->resolved()));
+
+        self::assertStringContainsString('FROM pfx_sales_order_item AS i JOIN pfx_sales_order AS o', $dead);
+        self::assertStringContainsString('FROM pfx_sales_order_item AS i WHERE', $never);
     }
 
     public function testItComputesDaysSinceLastSaleAndNullWhenNeverSold(): void
@@ -61,7 +77,7 @@ final class StockAntiJoinQueryTest extends TestCase
 
         self::assertStringContainsString(
             '(SELECT DATEDIFF(UTC_TIMESTAMP(), MAX(o.created_at)) FROM sales_order_item AS i JOIN sales_order AS o'
-            . ' ON o.entity_id = i.order_id WHERE i.product_id = s.product_id AND o.status NOT IN (\'canceled\'))'
+            . ' ON o.entity_id = i.order_id WHERE i.product_id = main.product_id AND o.status NOT IN (\'canceled\'))'
             . ' AS `days_since_last_sale`',
             $sql
         );
@@ -71,12 +87,53 @@ final class StockAntiJoinQueryTest extends TestCase
     {
         $sql = $this->normalizeSql($this->build(NeverSoldQuery::class)->getSelect($this->resolved()));
 
-        self::assertStringContainsString('s.is_enabled = 1', $sql);
+        self::assertStringContainsString('main.is_enabled = 1', $sql);
         self::assertStringContainsString(
-            'NOT EXISTS (SELECT 1 FROM sales_order_item AS i WHERE i.product_id = s.product_id)',
+            'NOT EXISTS (SELECT 1 FROM sales_order_item AS i WHERE i.product_id = main.product_id)',
             $sql
         );
         self::assertStringNotContainsString('sales_order AS o', $sql);
+    }
+
+    public function testItOnlyConsidersSalesOfTheRequestedStoresInDeadStock(): void
+    {
+        $sql = $this->normalizeSql(
+            $this->build(DeadStockQuery::class)->getSelect($this->resolved(storeIds: [1, 3]))
+        );
+
+        self::assertStringContainsString('AND o.store_id IN (1, 3) AND o.created_at >= :utcSince', $sql);
+        self::assertStringContainsString(
+            'MAX(o.created_at)) FROM sales_order_item AS i JOIN sales_order AS o ON o.entity_id = i.order_id'
+            . ' WHERE i.product_id = main.product_id AND o.store_id IN (1, 3) AND o.status',
+            $sql
+        );
+    }
+
+    public function testItJoinsOrdersToRestrictTheNeverSoldAntiJoinToTheRequestedStores(): void
+    {
+        $sql = $this->normalizeSql(
+            $this->build(NeverSoldQuery::class)->getSelect($this->resolved(storeIds: [2]))
+        );
+
+        self::assertStringContainsString(
+            'NOT EXISTS (SELECT 1 FROM sales_order_item AS i JOIN sales_order AS o ON o.entity_id = i.order_id'
+            . ' WHERE i.product_id = main.product_id AND o.store_id IN (2))',
+            $sql
+        );
+    }
+
+    public function testItAppliesTheRequestFiltersToTheStockRowsOfTheAntiJoinPresets(): void
+    {
+        $filters = [
+            new FilterCondition('qty', FilterOperator::GTE, 5),
+            new FilterCondition('source_code', FilterOperator::EQ, 'warehouse'),
+        ];
+        foreach ([DeadStockQuery::class, NeverSoldQuery::class] as $class) {
+            $sql = $this->normalizeSql($this->build($class)->getSelect($this->resolved(filters: $filters)));
+
+            self::assertStringContainsString('main.qty >= 5', $sql, $class);
+            self::assertStringContainsString("main.source_code = 'warehouse'", $sql, $class);
+        }
     }
 
     public function testItAppliesGuardrailsAndMaxRows(): void
@@ -105,14 +162,14 @@ final class StockAntiJoinQueryTest extends TestCase
             $this->build(NeverSoldQuery::class)->getSelect($this->resolved(dimensions: [new DimensionSelection('product_id')]))
         );
 
-        self::assertStringContainsString('`s`.`product_id`', $sql);
+        self::assertStringContainsString('`main`.`product_id`', $sql);
     }
 
     public function testItDoesNotSelectProductIdWhenNotRequested(): void
     {
         $sql = $this->normalizeSql($this->build(NeverSoldQuery::class)->getSelect($this->resolved()));
 
-        self::assertStringContainsString('SELECT `s`.`sku`, SUM(s.qty)', $sql);
+        self::assertStringContainsString('SELECT `main`.`sku`, SUM(main.qty)', $sql);
     }
 
     public function testItReturnsTheProductIdInDimsRaw(): void
@@ -213,11 +270,14 @@ final class StockAntiJoinQueryTest extends TestCase
     /**
      * @param class-string<AbstractStockAntiJoinQuery> $class
      */
-    private function build(string $class): AbstractStockAntiJoinQuery
+    private function build(string $class, string $tablePrefix = ''): AbstractStockAntiJoinQuery
     {
         $this->adapter = $this->createSqlAdapter();
         $resource = $this->createStub(ResourceConnection::class);
         $resource->method('getConnectionByName')->willReturn($this->adapter);
+        $resource->method('getTableName')->willReturnCallback(
+            static fn (string $name): string => $tablePrefix . $name
+        );
         $config = $this->createStub(Config::class);
         $config->method('getDeadStockDays')->willReturn(90);
         $config->method('getCountedStatuses')->willReturn([]);
@@ -247,26 +307,39 @@ final class StockAntiJoinQueryTest extends TestCase
             $stock,
             $guardrails,
             new CountedStatusCondition($config),
-            $applier
+            $applier,
+            new FieldExpressionResolver(),
+            new UserFilterBuilder()
         );
     }
 
     /**
      * @param SortOrder[] $sort
      * @param DimensionSelection[] $dimensions
+     * @param int[] $storeIds
+     * @param FilterCondition[] $filters
      */
-    private function resolved(?int $limit = null, int $offset = 0, array $sort = [], array $dimensions = []): ResolvedQuery
-    {
+    private function resolved(
+        ?int $limit = null,
+        int $offset = 0,
+        array $sort = [],
+        array $dimensions = [],
+        array $storeIds = [],
+        array $filters = [],
+    ): ResolvedQuery {
         return new ResolvedQuery(
-            new Dataset('catalog_stock', 'Stock', 'acl', 'catalog', true, null, null, null, [], [], [], [], [
+            new Dataset('catalog_stock', 'Stock', 'acl', 'catalog', true, null, null, null, [], [
+                'qty' => new Field('qty', 'Qty', FieldType::DECIMAL, ['mysql' => new SourceMapping('main.qty')]),
+                'source_code' => new Field('source_code', 'Source', FieldType::STRING, ['mysql' => new SourceMapping('main.source_code')]),
+            ], [], [], [
                 'sku' => new Dimension('sku', 'SKU', 'sku'),
                 'product_id' => new Dimension('product_id', 'Product', 'product_id', [], ProductNameLabelResolver::class),
             ]),
             [],
             $dimensions,
-            [],
+            $filters,
             null,
-            [],
+            $storeIds,
             $sort,
             $limit,
             $offset,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Etc;
 
+use Magento\Framework\Acl\AclResource\ProviderInterface;
 use Magento\Framework\App\State;
 use Magento\Framework\Config\FileResolverInterface;
 use Magento\Framework\Config\SchemaLocatorInterface;
@@ -77,7 +78,12 @@ trait ReportDatasetsFixtureTrait
 
         $state = $this->createStub(State::class);
         $state->method('getMode')->willReturn(State::MODE_DEVELOPER);
-        $validator = new DefinitionValidator($state, $this->createStub(LoggerInterface::class));
+        $aclProvider = $this->createStub(ProviderInterface::class);
+        $aclProvider->method('getAclResources')->willReturn([
+            ['id' => 'Magento_Sales::actions_view', 'children' => []],
+            ['id' => 'Magento_Customer::manage', 'children' => []],
+        ]);
+        $validator = new DefinitionValidator($state, $this->createStub(LoggerInterface::class), $aclProvider);
 
         return $validator->validate($datasets, $presets);
     }

@@ -48,7 +48,12 @@ class TimezoneStrategy
             $cases .= \sprintf(' WHEN %d THEN %s', $storeId, $this->convert($createdAt, $timezone));
         }
 
-        return \sprintf('CASE %s%s END', $storeIdExpr, $cases);
+        return \sprintf(
+            'CASE %s%s ELSE %s END',
+            $storeIdExpr,
+            $cases,
+            $this->convert($createdAt, $this->timezoneMap->getDefaultTimezone())
+        );
     }
 
     /**

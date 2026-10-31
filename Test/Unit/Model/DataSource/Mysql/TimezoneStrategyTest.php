@@ -33,8 +33,19 @@ final class TimezoneStrategyTest extends TestCase
 
         self::assertSame(
             "CASE main.store_id WHEN 1 THEN CONVERT_TZ(main.created_at, 'UTC', 'Europe/Rome')"
-            . " WHEN 2 THEN CONVERT_TZ(main.created_at, 'UTC', 'America/New_York') END",
+            . " WHEN 2 THEN CONVERT_TZ(main.created_at, 'UTC', 'America/New_York')"
+            . " ELSE CONVERT_TZ(main.created_at, 'UTC', 'UTC') END",
             $strategy->localDateTime('main.created_at', 'main.store_id', [1, 2])
+        );
+    }
+
+    public function testItRendersAnElseBranchWithTheDefaultTimezoneInTheStoreTimezoneCase(): void
+    {
+        $strategy = $this->build([1 => 'Europe/Rome', 2 => 'America/New_York'], 'Asia/Tokyo');
+
+        self::assertStringEndsWith(
+            " ELSE CONVERT_TZ(main.created_at, 'UTC', 'Asia/Tokyo') END",
+            $strategy->localDateTime('main.created_at', 'main.store_id', [])
         );
     }
 
@@ -80,11 +91,13 @@ final class TimezoneStrategyTest extends TestCase
 
     /**
      * @param array<int,string> $timezones
+     * @param string $defaultTimezone
      */
-    private function build(array $timezones): TimezoneStrategy
+    private function build(array $timezones, string $defaultTimezone = 'UTC'): TimezoneStrategy
     {
         $map = $this->createStub(StoreTimezoneMap::class);
         $map->method('getTimezonesForStores')->willReturn($timezones);
+        $map->method('getDefaultTimezone')->willReturn($defaultTimezone);
         $adapter = $this->createStub(AdapterInterface::class);
         $adapter->method('quote')->willReturnCallback(static fn (string $v): string => "'" . $v . "'");
         $resource = $this->createStub(ResourceConnection::class);

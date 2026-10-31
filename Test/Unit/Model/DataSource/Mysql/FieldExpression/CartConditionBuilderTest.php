@@ -10,6 +10,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartAbandonedExpression;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartConditionBuilder;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartConvertedExpression;
+use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartCustomerEmailExpression;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartRecentExpression;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartStateExpression;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionProviderInterface;
@@ -24,15 +25,32 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(CartAbandonedExpression::class)]
 #[CoversClass(CartRecentExpression::class)]
 #[CoversClass(CartStateExpression::class)]
+#[CoversClass(CartCustomerEmailExpression::class)]
 final class CartConditionBuilderTest extends TestCase
 {
     use SelectTestTrait;
+
+    private const string CONVERTED = '(EXISTS (SELECT 1 FROM sales_order AS so WHERE so.quote_id = main.entity_id))';
+    private const string EMAIL = "COALESCE(NULLIF(TRIM(main.customer_email), ''), (SELECT NULLIF(TRIM(qa.email), '')"
+        . " FROM quote_address AS qa WHERE qa.quote_id = main.entity_id AND qa.address_type = 'billing' LIMIT 1))";
 
     public function testItBuildsAnExistsSubSelectOnSalesOrderQuoteIdForTheConvertedExpression(): void
     {
         self::assertSame(
             '(EXISTS (SELECT 1 FROM sales_order AS so WHERE so.quote_id = main.entity_id))',
             $this->sql(CartConvertedExpression::class)
+        );
+    }
+
+    public function testItRendersTheCartConvertedConditionAgainstThePrefixedSalesOrderTable(): void
+    {
+        self::assertSame(
+            '(EXISTS (SELECT 1 FROM pre_sales_order AS so WHERE so.quote_id = main.entity_id))',
+            $this->sql(CartConvertedExpression::class, 'main', 'pre_')
+        );
+        self::assertStringContainsString(
+            'FROM pre_sales_order AS so',
+            $this->sql(CartStateExpression::class, 'main', 'pre_')
         );
     }
 
@@ -45,25 +63,51 @@ final class CartConditionBuilderTest extends TestCase
         );
     }
 
-    public function testItRequiresAnActiveNonEmptyCartWithACustomerEmailForTheAbandonedExpression(): void
+    public function testItRequiresAnActiveNonEmptyCartWithAnEmailAndNoOrderForTheAbandonedExpression(): void
     {
         self::assertSame(
-            "(main.is_active = 1 AND main.items_count > 0 AND main.customer_email IS NOT NULL"
-            . " AND main.customer_email <> '' AND main.updated_at < '2026-03-14 01:00:00')",
+            '(main.is_active = 1 AND main.items_count > 0 AND ' . self::EMAIL . ' IS NOT NULL'
+            . " AND main.updated_at < '2026-03-14 01:00:00' AND NOT " . self::CONVERTED . ')',
             $this->sql(CartAbandonedExpression::class)
         );
     }
 
-    public function testItUsesTheRecentCartHoursSettingToComputeTheRecentThresholdFromTheClockInUtc(): void
+    public function testItLowercasesTheQuoteEmailWithBillingFallbackForTheCustomerEmailExpression(): void
+    {
+        self::assertSame('LOWER(' . self::EMAIL . ')', $this->sql(CartCustomerEmailExpression::class));
+    }
+
+    public function testItFallsBackToTheBillingAddressEmailThroughThePrefixedQuoteAddressTable(): void
+    {
+        $sql = $this->sql(CartAbandonedExpression::class, 'main', 'pre_');
+
+        self::assertStringContainsString(
+            "COALESCE(NULLIF(TRIM(main.customer_email), ''), (SELECT NULLIF(TRIM(qa.email), '')"
+            . " FROM pre_quote_address AS qa WHERE qa.quote_id = main.entity_id AND qa.address_type = 'billing'"
+            . ' LIMIT 1))',
+            $sql
+        );
+    }
+
+    public function testItExcludesQuotesWithAnOrderFromTheRecentExpression(): void
     {
         // 6h before now
         self::assertSame(
-            "(main.is_active = 1 AND main.items_count > 0 AND main.updated_at >= '2026-03-15 19:00:00')",
+            "(main.is_active = 1 AND main.items_count > 0 AND main.updated_at >= '2026-03-15 19:00:00'"
+            . ' AND NOT ' . self::CONVERTED . ')',
             $this->sql(CartRecentExpression::class)
         );
     }
 
-    public function testItMapsActiveCartsUpdatedBeforeTheAbandonedThresholdToTheAbandonedStateOnlyWhenTheyHaveAnEmail(): void
+    public function testItMapsQuotesWithAnOrderToConvertedBeforeAnyActiveOrAbandonedState(): void
+    {
+        $sql = $this->sql(CartStateExpression::class);
+
+        self::assertStringStartsWith('(CASE WHEN ' . self::CONVERTED . " THEN 'converted' WHEN main.is_active = 1", $sql);
+        self::assertStringEndsWith("WHEN main.is_active = 1 THEN 'unrecoverable' ELSE 'inactive' END)", $sql);
+    }
+
+    public function testItMapsIdleActiveCartsToAbandonedOnlyWhenTheyHaveAnEmail(): void
     {
         $sql = $this->sql(CartStateExpression::class);
 
@@ -72,18 +116,8 @@ final class CartConditionBuilderTest extends TestCase
             $sql
         );
         self::assertStringContainsString(
-            "WHEN main.is_active = 1 AND main.customer_email IS NOT NULL AND main.customer_email <> ''"
-            . " THEN 'abandoned' WHEN main.is_active = 1 THEN 'unrecoverable'",
+            'WHEN main.is_active = 1 AND ' . self::EMAIL . " IS NOT NULL THEN 'abandoned'",
             $sql
-        );
-    }
-
-    public function testItMapsInactiveCartsWithAnOrderToTheConvertedStateAndThoseWithoutToInactive(): void
-    {
-        self::assertStringContainsString(
-            "WHEN main.is_active = 1 THEN 'unrecoverable' WHEN (EXISTS (SELECT 1 FROM sales_order AS so"
-            . " WHERE so.quote_id = main.entity_id)) THEN 'converted' ELSE 'inactive' END",
-            $this->sql(CartStateExpression::class)
         );
     }
 
@@ -136,7 +170,7 @@ final class CartConditionBuilderTest extends TestCase
     /**
      * @param class-string<FieldExpressionProviderInterface> $class
      */
-    private function sql(string $class, string $alias = 'main'): string
+    private function sql(string $class, string $alias = 'main', string $prefix = ''): string
     {
         $clock = $this->createStub(ClockInterface::class);
         $clock->method('now')->willReturn(new DateTimeImmutable('2026-03-16 01:00:00', new DateTimeZone('UTC')));
@@ -147,7 +181,7 @@ final class CartConditionBuilderTest extends TestCase
         $dataset = new Dataset('d', 'D', 'acl', 'adminhtml', false, 'quote', $alias, null, [], [], [], [], []);
 
         return $this->normalizeSql(
-            (new $class(new CartConditionBuilder($clock, $config), $alias))
+            (new $class(new CartConditionBuilder($clock, $config, $this->createReportConnection($prefix)), $alias))
                 ->getExpression($dataset, $this->createSqlAdapter())
         );
     }

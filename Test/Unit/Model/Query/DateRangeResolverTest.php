@@ -6,6 +6,7 @@ namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
 use DateTimeImmutable;
 use MageOS\AdvancedReport\Model\Query\ClockInterface;
+use MageOS\AdvancedReport\Model\Query\CompareMode;
 use MageOS\AdvancedReport\Model\Query\DateRange;
 use MageOS\AdvancedReport\Model\Query\DateRangeResolver;
 use MageOS\AdvancedReport\Model\Query\DateRangeType;
@@ -81,7 +82,66 @@ final class DateRangeResolverTest extends TestCase
         self::assertSame('2026-01-05', $previous->range->from->format('Y-m-d'));
         self::assertSame('2026-01-09', $previous->range->to->format('Y-m-d'));
         self::assertSame($range->days, $previous->range->days);
-        self::assertSame(5, $previous->offset->days);
+        self::assertSame(5, $previous->offsetDays);
+        self::assertSame(CompareMode::PREVIOUS_PERIOD, $previous->mode);
+    }
+
+    public function testItResolvesThePreviousPeriodOfAWholeCalendarMonthAsThePrecedingWholeMonth(): void
+    {
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-10-01', '2024-10-31'), $this->scope);
+
+        $previous = $this->resolver->previousPeriod($range, $this->scope);
+
+        self::assertSame('2024-09-01', $previous->range->from->format('Y-m-d'));
+        self::assertSame('2024-09-30', $previous->range->to->format('Y-m-d'));
+        self::assertSame(30, $previous->range->days);
+        self::assertSame(30, $previous->offsetDays);
+    }
+
+    public function testItResolvesThePreviousPeriodOfWholeMonthsSpanningSeveralMonthsAsThePrecedingSameNumberOfMonths(): void
+    {
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-02-01', '2024-04-30'), $this->scope);
+
+        $previous = $this->resolver->previousPeriod($range, $this->scope);
+
+        self::assertSame('2023-11-01', $previous->range->from->format('Y-m-d'));
+        self::assertSame('2024-01-31', $previous->range->to->format('Y-m-d'));
+
+        $year = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-01-01', '2024-12-31'), $this->scope);
+        $previousYear = $this->resolver->previousPeriod($year, $this->scope);
+
+        self::assertSame('2023-01-01', $previousYear->range->from->format('Y-m-d'));
+        self::assertSame('2023-12-31', $previousYear->range->to->format('Y-m-d'));
+    }
+
+    public function testItKeepsTheDayCountPreviousPeriodForRangesThatAreNotWholeMonthsOrYears(): void
+    {
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-10-01', '2024-10-30'), $this->scope);
+
+        $previous = $this->resolver->previousPeriod($range, $this->scope);
+
+        self::assertSame('2024-09-01', $previous->range->from->format('Y-m-d'));
+        self::assertSame('2024-09-30', $previous->range->to->format('Y-m-d'));
+
+        $partial = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-10-02', '2024-10-31'), $this->scope);
+        $previousPartial = $this->resolver->previousPeriod($partial, $this->scope);
+
+        self::assertSame('2024-09-02', $previousPartial->range->from->format('Y-m-d'));
+        self::assertSame('2024-10-01', $previousPartial->range->to->format('Y-m-d'));
+    }
+
+    public function testItUsesTheSameAlignedPreviousPeriodRangeForTheComparisonTotalsAndTheRowAlignment(): void
+    {
+        // QueryPlanner::plan() and ReportRunner::buildAlignment() both call previousPeriod()
+        // with the main query range and scope: the result must be identical.
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::LAST_MONTH), $this->scope);
+
+        $forTotals = $this->resolver->previousPeriod($range, $this->scope);
+        $forRows = $this->resolver->previousPeriod($range, $this->scope);
+
+        self::assertEquals($forTotals, $forRows);
+        self::assertSame('2026-01-01', $forTotals->range->from->format('Y-m-d'));
+        self::assertSame('2026-01-31', $forTotals->range->to->format('Y-m-d'));
     }
 
     public function testItComputesThePreviousYearAndClampsFebruary29(): void
@@ -93,6 +153,19 @@ final class DateRangeResolverTest extends TestCase
         self::assertSame('2023-02-28', $previous->range->from->format('Y-m-d'));
         self::assertSame('2023-02-28', $previous->range->to->format('Y-m-d'));
         self::assertSame(1, $previous->range->days);
+    }
+
+    public function testItStoresTheComparisonOffsetAsAWholeNumberOfDaysWithTheCompareMode(): void
+    {
+        $range = $this->resolver->resolve(new DateRange(DateRangeType::CUSTOM, '2024-04-01', '2024-06-29'), $this->scope);
+
+        $previousPeriod = $this->resolver->previousPeriod($range, $this->scope);
+        $previousYear = $this->resolver->previousYear($range, $this->scope);
+
+        self::assertSame(CompareMode::PREVIOUS_PERIOD, $previousPeriod->mode);
+        self::assertSame(90, $previousPeriod->offsetDays);
+        self::assertSame(CompareMode::PREVIOUS_YEAR, $previousYear->mode);
+        self::assertSame(366, $previousYear->offsetDays);
     }
 
     public function testItFlagsRangesThatIncludeToday(): void

@@ -247,6 +247,55 @@ final class CsvExporterTest extends TestCase
         self::assertSame("'@cmd", $csv[2][0]);
     }
 
+    public function testItNeutralizesStringCellsStartingWithATab(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([$this->row("\t12345", 'x', 1, 1.0)]));
+
+        $this->exporter()->exportToFile($this->request, false);
+
+        self::assertSame("'\t12345", $this->written[1][0]);
+    }
+
+    public function testItNeutralizesStringCellsStartingWithACarriageReturn(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([$this->row("\r12345", 'x', 1, 1.0)]));
+
+        $this->exporter()->exportToFile($this->request, false);
+
+        self::assertSame("'\r12345", $this->written[1][0]);
+    }
+
+    public function testItNeutralizesHeaderLabelsStartingWithAFormulaCharacter(): void
+    {
+        $columns = [
+            ['code' => 'status', 'label' => '=HYPERLINK("x")', 'type' => 'dimension'],
+            ['code' => 'orders', 'label' => '@Orders', 'type' => 'metric'],
+        ];
+        $this->runner->method('run')->willReturn($this->buildResult([$this->row('A', 'a', 1, 1.0)], [], false, $columns));
+
+        $this->exporter()->exportToFile($this->request, false);
+
+        self::assertSame(["'=HYPERLINK(\"x\")", "'=HYPERLINK(\"x\") (ID)", "'@Orders"], $this->written[0]);
+    }
+
+    public function testItLeavesNegativeNumericCellsUnchanged(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([$this->row('A', 'a', -3, -12.5)]));
+
+        $this->exporter()->exportToFile($this->request, false);
+
+        self::assertSame(['A', 'a', '-3', '-12.5'], $this->written[1]);
+    }
+
+    public function testItLeavesPlainHeaderLabelsUnchanged(): void
+    {
+        $this->runner->method('run')->willReturn($this->buildResult([]));
+
+        $this->exporter()->exportToFile($this->request, false);
+
+        self::assertSame(['Status', 'Orders', 'Net sales'], $this->written[0]);
+    }
+
     /**
      * @return array<string,mixed>
      */
@@ -262,11 +311,12 @@ final class CsvExporterTest extends TestCase
     /**
      * @param array<int,array<string,mixed>> $rows
      * @param array<string,mixed> $totals
+     * @param array<int,array<string,string>>|null $columns
      */
-    private function buildResult(array $rows, array $totals = [], bool $comparison = false): ReportResultInterface
+    private function buildResult(array $rows, array $totals = [], bool $comparison = false, ?array $columns = null): ReportResultInterface
     {
         $result = $this->createStub(ReportResultInterface::class);
-        $result->method('getColumns')->willReturn(self::COLUMNS);
+        $result->method('getColumns')->willReturn($columns ?? self::COLUMNS);
         $result->method('getRows')->willReturn($rows);
         $result->method('getTotals')->willReturn($totals);
         $result->method('getComparisonRange')->willReturn(

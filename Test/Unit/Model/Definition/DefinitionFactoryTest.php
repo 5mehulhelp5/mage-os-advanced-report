@@ -34,6 +34,41 @@ final class DefinitionFactoryTest extends TestCase
         self::assertSame(JoinCardinality::ONE, $dataset->joins['category']->cardinality);
     }
 
+    public function testItBuildsFieldsWithTheDeclaredAcl(): void
+    {
+        $raw = $this->rawDataset([]);
+        $raw['fields'] = ['birth_year' => $this->rawField(['acl' => 'Magento_Sales::actions_view'])];
+
+        $dataset = (new DefinitionFactory())->createDataset($raw);
+
+        self::assertSame('Magento_Sales::actions_view', $dataset->fields['birth_year']->acl);
+    }
+
+    public function testItDefaultsTheFieldAclToNullForDefinitionsCachedWithoutIt(): void
+    {
+        $raw = $this->rawDataset([]);
+        $raw['fields'] = ['birth_year' => $this->rawField([])];
+
+        $dataset = (new DefinitionFactory())->createDataset($raw);
+
+        self::assertNull($dataset->fields['birth_year']->acl);
+    }
+
+    /**
+     * @param array<string,mixed> $overrides
+     * @return array<string,mixed>
+     */
+    private function rawField(array $overrides): array
+    {
+        return [
+            'code' => 'birth_year',
+            'label' => 'Year of birth',
+            'type' => 'integer',
+            'description' => null,
+            'sourceMappings' => ['mysql' => ['expression' => 'YEAR(main.customer_dob)', 'expressionProvider' => null, 'joins' => []]],
+        ] + $overrides;
+    }
+
     /**
      * @param array<string,mixed> $joinOverrides
      * @return array<string,mixed>

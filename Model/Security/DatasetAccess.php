@@ -10,6 +10,8 @@ use Magento\Framework\Exception\AuthorizationException;
 use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
+use MageOS\AdvancedReport\Model\Definition\Field;
+use MageOS\AdvancedReport\Model\Definition\Preset;
 
 /**
  * Decides whether the current admin may read a dataset: the module dataset ACL and,
@@ -27,12 +29,14 @@ class DatasetAccess
      * @param ProviderInterface $aclResourceProvider
      * @param DefinitionRegistry $definitionRegistry
      * @param array<string,string|string[]> $coreResources dataset code => core ACL id or list of ids (all required)
+     * @param array<string,string[]> $presetDatasets preset code => extra dataset codes the preset reads (all required)
      */
     public function __construct(
         private readonly AuthorizationInterface $authorization,
         private readonly ProviderInterface $aclResourceProvider,
         private readonly DefinitionRegistry $definitionRegistry,
         private readonly array $coreResources = [],
+        private readonly array $presetDatasets = [],
     ) {
     }
 
@@ -71,6 +75,16 @@ class DatasetAccess
     }
 
     /**
+     * Whether the current admin holds the field's ACL resource (always true for an ungated field).
+     *
+     * @param Field $field
+     */
+    public function isFieldAllowed(Field $field): bool
+    {
+        return $field->acl === null || $this->authorization->isAllowed($field->acl);
+    }
+
+    /**
      * Fails when the current admin may not read the dataset.
      *
      * @param Dataset $dataset
@@ -87,7 +101,37 @@ class DatasetAccess
     }
 
     /**
-     * Sorted distinct module dataset ACLs plus declared core resources.
+     * Whether the current admin may read every extra dataset the preset depends on
+     * (e.g. sales history behind the stock anti-join presets).
+     *
+     * @param Preset $preset
+     */
+    public function isPresetAllowed(Preset $preset): bool
+    {
+        foreach ($this->presetRequiredDatasets($preset) as $dataset) {
+            if (!$this->isAllowed($dataset)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Fails when the current admin may not read an extra dataset the preset depends on.
+     *
+     * @param Preset $preset
+     * @throws AuthorizationException
+     */
+    public function assertPresetAllowed(Preset $preset): void
+    {
+        foreach ($this->presetRequiredDatasets($preset) as $dataset) {
+            $this->assertAllowed($dataset);
+        }
+    }
+
+    /**
+     * Sorted distinct module dataset ACLs, declared core resources and field ACLs.
      *
      * @return string[]
      */
@@ -96,6 +140,11 @@ class DatasetAccess
         $resources = [];
         foreach ($this->definitionRegistry->getDatasets() as $dataset) {
             $resources[$dataset->aclResource] = true;
+            foreach ($dataset->fields as $field) {
+                if ($field->acl !== null) {
+                    $resources[$field->acl] = true;
+                }
+            }
         }
         foreach (array_keys($this->coreResources) as $code) {
             foreach ($this->getCoreResources((string) $code) as $core) {
@@ -106,6 +155,17 @@ class DatasetAccess
         sort($ids);
 
         return $ids;
+    }
+
+    /**
+     * @return Dataset[]
+     */
+    private function presetRequiredDatasets(Preset $preset): array
+    {
+        return array_map(
+            $this->definitionRegistry->getDataset(...),
+            array_map(strval(...), $this->presetDatasets[$preset->code] ?? [])
+        );
     }
 
     private function firstDenied(Dataset $dataset): ?string

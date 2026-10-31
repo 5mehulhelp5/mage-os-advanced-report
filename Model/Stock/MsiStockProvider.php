@@ -17,14 +17,14 @@ class MsiStockProvider extends AbstractStockProvider
     protected function applyBase(AdapterInterface $connection, Select $select): void
     {
         $select->from(
-            ['si' => $connection->getTableName('inventory_source_item')],
+            ['si' => $this->reportConnection->getTableName('inventory_source_item')],
             ['qty' => 'si.quantity', 'source_code' => 'si.source_code']
         )->join(
-            ['src' => $connection->getTableName('inventory_source')],
+            ['src' => $this->reportConnection->getTableName('inventory_source')],
             'src.source_code = si.source_code AND src.enabled = 1',
             []
         )->join(
-            ['e' => $connection->getTableName('catalog_product_entity')],
+            ['e' => $this->reportConnection->getTableName('catalog_product_entity')],
             'e.sku = si.sku',
             ['product_id' => 'e.entity_id', 'sku' => 'e.sku']
         );

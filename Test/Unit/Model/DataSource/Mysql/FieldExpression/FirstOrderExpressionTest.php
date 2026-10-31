@@ -31,13 +31,13 @@ final class FirstOrderExpressionTest extends TestCase
         );
     }
 
-    public function testItChecksEarlierGuestOrdersByEmailForGuests(): void
+    public function testItChecksEarlierOrdersOfAnyCustomerWithTheSameEmailForGuests(): void
     {
         self::assertStringContainsString(
-            'ELSE NOT EXISTS (SELECT 1 FROM sales_order AS p WHERE p.customer_id IS NULL '
-            . 'AND p.customer_email = main.customer_email AND',
+            'ELSE NOT EXISTS (SELECT 1 FROM sales_order AS p WHERE p.customer_email = main.customer_email AND',
             $this->expression()
         );
+        self::assertStringNotContainsString('p.customer_id IS NULL', $this->expression());
     }
 
     public function testItAppliesTheCountedStatusConditionToEarlierOrders(): void
@@ -61,6 +61,14 @@ final class FirstOrderExpressionTest extends TestCase
         self::assertStringNotContainsString('(p.created_at, p.entity_id)', $sql);
     }
 
+    public function testItRendersTheFirstOrderSubqueryAgainstThePrefixedSalesOrderTable(): void
+    {
+        $sql = $this->expression([], 'main', 'pre_');
+
+        self::assertSame(2, substr_count($sql, 'FROM pre_sales_order AS p'));
+        self::assertStringNotContainsString('FROM sales_order', $sql);
+    }
+
     public function testItUsesTheOrderAliasOfTheDataset(): void
     {
         $sql = $this->expression([], 'order');
@@ -73,13 +81,13 @@ final class FirstOrderExpressionTest extends TestCase
     /**
      * @param string[] $statuses
      */
-    private function expression(array $statuses = [], string $alias = 'main'): string
+    private function expression(array $statuses = [], string $alias = 'main', string $prefix = ''): string
     {
         $config = $this->createStub(Config::class);
         $config->method('getCountedStatuses')->willReturn($statuses);
 
         return $this->normalizeSql(
-            (new FirstOrderExpression(new CountedStatusCondition($config)))
+            (new FirstOrderExpression(new CountedStatusCondition($config), $this->createReportConnection($prefix)))
                 ->getExpression($this->dataset($alias), $this->createSqlAdapter())
         );
     }

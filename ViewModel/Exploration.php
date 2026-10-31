@@ -170,8 +170,17 @@ class Exploration implements ArgumentInterface
                 'code' => $dataset->code,
                 'label' => (string) __($dataset->label),
                 'metrics' => $this->getMetrics($dataset),
-                'dimensions' => array_values(array_map($this->dimensionToArray(...), $dataset->dimensions)),
-                'filters' => array_values(array_map($this->fieldToArray(...), $dataset->fields)),
+                'dimensions' => array_values(array_map(
+                    $this->dimensionToArray(...),
+                    array_filter(
+                        $dataset->dimensions,
+                        fn (Dimension $dimension): bool => $this->isDimensionAllowed($dataset, $dimension)
+                    )
+                )),
+                'filters' => array_values(array_map(
+                    $this->fieldToArray(...),
+                    array_filter($dataset->fields, $this->datasetAccess->isFieldAllowed(...))
+                )),
             ];
         }
 
@@ -198,6 +207,13 @@ class Exploration implements ArgumentInterface
             ],
             $metrics
         ));
+    }
+
+    private function isDimensionAllowed(Dataset $dataset, Dimension $dimension): bool
+    {
+        $field = $dataset->fields[$dimension->fieldCode] ?? null;
+
+        return $field === null || $this->datasetAccess->isFieldAllowed($field);
     }
 
     /**

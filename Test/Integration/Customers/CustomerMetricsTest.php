@@ -343,12 +343,13 @@ final class CustomerMetricsTest extends TestCase
      */
     private function orderEmails(array $storageKeys): array
     {
-        $connection = Bootstrap::getObjectManager()->get(ResourceConnection::class)->getConnection();
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $connection = $resource->getConnection();
         $emails = [];
         foreach ($storageKeys as $key) {
             $orderId = (int) DataFixtureStorageManager::getStorage()->get($key)->getId();
             $emails[] = (string) $connection->fetchOne(
-                $connection->select()->from($connection->getTableName('sales_order'), 'customer_email')
+                $connection->select()->from($resource->getTableName('sales_order'), 'customer_email')
                     ->where('entity_id = ?', $orderId)
             );
         }

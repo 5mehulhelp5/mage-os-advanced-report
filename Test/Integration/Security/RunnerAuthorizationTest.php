@@ -6,6 +6,7 @@ namespace MageOS\AdvancedReport\Test\Integration\Security;
 
 use Magento\Authorization\Test\Fixture\Role;
 use Magento\Framework\Exception\AuthorizationException;
+use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\TestFramework\Fixture\AppArea;
 use Magento\TestFramework\Fixture\Cache;
 use Magento\TestFramework\Fixture\DataFixture;
@@ -16,9 +17,11 @@ use Magento\User\Test\Fixture\User;
 use MageOS\AdvancedReport\Model\Cache\Type as CacheType;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
+use MageOS\AdvancedReport\Model\Exploration\InitialStateResolver;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Security\AclContext;
 use MageOS\AdvancedReport\Test\Integration\Helper\ReportTestRunner;
+use MageOS\AdvancedReport\ViewModel\ReportList;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -42,6 +45,7 @@ final class RunnerAuthorizationTest extends TestCase
         'MageOS_AdvancedReport::catalog',
     ];
     private const array SALES_CORE = [...self::MODULE_ONLY, 'Magento_Sales::sales_order'];
+    private const array SALES_ORDER_VIEW = [...self::SALES_CORE, 'Magento_Sales::actions', 'Magento_Sales::actions_view'];
     private const array CUSTOMERS_CORE = [...self::MODULE_ONLY, 'Magento_Customer::manage'];
     private const array STOCK_CORE = [...self::MODULE_ONLY, 'Magento_Catalog::products'];
     private const array SALABLE_CORE = [...self::MODULE_ONLY, 'Magento_InventoryApi::stock'];
@@ -210,6 +214,57 @@ final class RunnerAuthorizationTest extends TestCase
         $this->assertStringContainsString('Sales data is not available', json_encode($result->getWarnings()));
     }
 
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ds1_%uniqid%', 'resources' => self::STOCK_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ds2_%uniqid%', 'resources' => self::ALL_CORE], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesDeadStockWithoutSalesItemsAccess(): void
+    {
+        $this->assertStockPresetDeniedWithoutSalesItemsAccess('dead_stock');
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ns1_%uniqid%', 'resources' => self::STOCK_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_ns2_%uniqid%', 'resources' => self::ALL_CORE], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesNeverSoldWithoutSalesItemsAccess(): void
+    {
+        $this->assertStockPresetDeniedWithoutSalesItemsAccess('never_sold');
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_hs1_%uniqid%', 'resources' => self::STOCK_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_hs2_%uniqid%', 'resources' => self::ALL_CORE], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItHidesDeadStockAndNeverSoldFromTheReportListAndExplorationCatalogueWithoutSalesItemsAccess(): void
+    {
+        $this->runner->loginAs($this->userName('user2'));
+        $this->assertSame(['dead_stock', 'never_sold'], $this->visibleStockPresets());
+
+        $this->runner->loginAs($this->userName('user'));
+        $this->assertSame([], $this->visibleStockPresets());
+        $state = Bootstrap::getObjectManager()->get(InitialStateResolver::class);
+        $this->expectException(NoSuchEntityException::class);
+        $state->resolve('dead_stock', null, 0);
+    }
+
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_by1_%uniqid%', 'resources' => self::SALES_CORE], 'role')]
+    #[DataFixture(User::class, ['role_id' => '$role.id$'], 'user')]
+    #[DataFixture(Role::class, ['role_name' => 'ar_runner_by2_%uniqid%', 'resources' => self::SALES_ORDER_VIEW], 'role2')]
+    #[DataFixture(User::class, ['role_id' => '$role2.id$'], 'user2')]
+    public function testItDeniesABirthYearReportToAnAdminWithSalesOrderButWithoutOrderView(): void
+    {
+        $dimensions = [['code' => 'birth_year', 'granularity' => null]];
+
+        $this->runner->loginAs($this->userName('user2'));
+        $this->runner->runWith('sales_orders', ['orders'], $dimensions);
+
+        $this->runner->loginAs($this->userName('user'));
+        $this->runner->runWith('sales_orders', ['orders']);
+        $this->expectException(AuthorizationException::class);
+        $this->runner->runWith('sales_orders', ['orders'], $dimensions);
+    }
+
     public function testItRejectsAPresetBelongingToAnotherDataset(): void
     {
         $this->runner->login();
@@ -344,6 +399,35 @@ final class RunnerAuthorizationTest extends TestCase
     /**
      * Runs the carts preset as the full role (positive control) and as "user" (must be denied).
      */
+    private function assertStockPresetDeniedWithoutSalesItemsAccess(string $preset): void
+    {
+        $this->runner->loginAs($this->userName('user2'));
+        $this->runner->runPreset($preset, '2026-01-01', '2026-01-31');
+
+        $this->runner->loginAs($this->userName('user'));
+        $this->expectException(AuthorizationException::class);
+        $this->runner->runPreset($preset, '2026-01-01', '2026-01-31');
+    }
+
+    /**
+     * @return string[] Codes of the dead_stock / never_sold presets listed by the report list view model.
+     */
+    private function visibleStockPresets(): array
+    {
+        $areas = Bootstrap::getObjectManager()->create(ReportList::class)->getAreas();
+        $urls = array_column($areas['catalog']['presets'] ?? [], 'url');
+        $codes = [];
+        foreach (['dead_stock', 'never_sold'] as $code) {
+            foreach ($urls as $url) {
+                if (str_contains((string) $url, 'preset/' . $code) || str_contains((string) $url, 'preset=' . $code)) {
+                    $codes[] = $code;
+                }
+            }
+        }
+
+        return $codes;
+    }
+
     private function assertCartPresetDeniedWithoutPermissions(): void
     {
         $this->runner->loginAs($this->userName('user2'));

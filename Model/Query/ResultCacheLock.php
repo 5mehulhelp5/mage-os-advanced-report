@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Model\Query;
 
+use Magento\Framework\App\Cache\StateInterface;
 use Magento\Framework\Lock\LockManagerInterface;
+use MageOS\AdvancedReport\Model\Cache\Type;
+use MageOS\AdvancedReport\Model\Config;
 use Throwable;
 
 /**
@@ -19,10 +22,20 @@ class ResultCacheLock
 {
     private const string LOCK_PREFIX = 'mageos_advancedreport_';
 
+    /** Extra seconds on top of the query timeout so waiters outlast the lock holder. */
+    private const int WAIT_MARGIN_SECONDS = 2;
+
+    /**
+     * Wait cap used when the query timeout is unlimited (0). Note that long waits inside an admin
+     * HTTP request may still hit PHP-FPM or proxy timeouts.
+     */
+    private const int UNLIMITED_WAIT_SECONDS = 60;
+
     public function __construct(
         private readonly LockManagerInterface $lockManager,
         private readonly ResultCacheWriteGuard $writeGuard,
-        private readonly int $waitSeconds = 10,
+        private readonly Config $config,
+        private readonly StateInterface $cacheState,
     ) {
     }
 
@@ -39,7 +52,7 @@ class ResultCacheLock
      */
     public function run(string $cacheKey, callable $reload, callable $compute): mixed
     {
-        if ($this->writeGuard->isStoreSuppressed()) {
+        if ($this->writeGuard->isStoreSuppressed() || !$this->cacheState->isEnabled(Type::TYPE_IDENTIFIER)) {
             return $reload() ?? $compute();
         }
 
@@ -55,10 +68,19 @@ class ResultCacheLock
         }
     }
 
+    private function getWaitSeconds(): int
+    {
+        $timeoutMs = $this->config->getQueryTimeoutMs();
+
+        return $timeoutMs > 0
+            ? (int) ceil($timeoutMs / 1000) + self::WAIT_MARGIN_SECONDS
+            : self::UNLIMITED_WAIT_SECONDS;
+    }
+
     private function acquire(string $lockName): bool
     {
         try {
-            return $this->lockManager->lock($lockName, $this->waitSeconds);
+            return $this->lockManager->lock($lockName, $this->getWaitSeconds());
         } catch (Throwable) {
             return false;
         }

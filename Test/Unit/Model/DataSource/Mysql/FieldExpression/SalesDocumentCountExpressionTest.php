@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\DataSource\Mysql\FieldExpression;
 
 use InvalidArgumentException;
-use Magento\Framework\DB\Adapter\Pdo\Mysql;
 use MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\SalesDocumentCountExpression;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\Field;
@@ -57,15 +56,13 @@ final class SalesDocumentCountExpressionTest extends TestCase
         self::assertStringNotContainsString('d.state', $this->expression());
     }
 
-    public function testItResolvesAllTableNamesThroughTheConnectionSoTheTablePrefixIsApplied(): void
+    public function testItRendersSalesDocumentCountSubqueriesAgainstPrefixedDocumentItemAndOrderItemTables(): void
     {
-        $adapter = $this->createStub(Mysql::class);
-        $adapter->method('getTableName')->willReturnCallback(
-            static fn (string $name): string => 'pre_' . $name
-        );
-
-        $sql = (new SalesDocumentCountExpression('sales_shipment', 'sales_shipment_item'))
-            ->getExpression($this->dataset('main'), $adapter);
+        $sql = (new SalesDocumentCountExpression(
+            'sales_shipment',
+            'sales_shipment_item',
+            $this->createReportConnection('pre_')
+        ))->getExpression($this->dataset('main'), $this->createSqlAdapter());
 
         self::assertStringContainsString('FROM pre_sales_shipment AS d', $sql);
         self::assertStringContainsString('JOIN pre_sales_shipment_item AS di', $sql);
@@ -104,7 +101,7 @@ final class SalesDocumentCountExpressionTest extends TestCase
     private function expression(string $alias = 'main', array $excludedStates = [], ?string $mapping = null): string
     {
         return $this->normalizeSql(
-            (new SalesDocumentCountExpression('sales_shipment', 'sales_shipment_item', $excludedStates))
+            (new SalesDocumentCountExpression('sales_shipment', 'sales_shipment_item', $this->createReportConnection(), $excludedStates))
                 ->getExpression($this->dataset($alias, $mapping), $this->createSqlAdapter())
         );
     }

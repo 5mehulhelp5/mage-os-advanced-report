@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
-use DateInterval;
 use DateTimeImmutable;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
@@ -49,7 +48,7 @@ final class QueryPlannerTest extends TestCase
             false,
             25
         );
-        $comparisonPeriod = new ComparisonPeriod($comparisonRange, new DateInterval('P25D'));
+        $comparisonPeriod = new ComparisonPeriod($comparisonRange, CompareMode::PREVIOUS_PERIOD, 25);
 
         $dateRangeResolver = $this->createStub(DateRangeResolver::class);
         $dateRangeResolver->method('resolve')->willReturn($range);
@@ -78,7 +77,7 @@ final class QueryPlannerTest extends TestCase
     public function testItSetsTheResolvedReportScopeOnTheMainAndComparisonQueries(): void
     {
         $range = new ResolvedDateRange(new DateTimeImmutable('2026-09-01'), new DateTimeImmutable('2026-09-25'), true, 25);
-        $comparisonPeriod = new ComparisonPeriod($range, new DateInterval('P25D'));
+        $comparisonPeriod = new ComparisonPeriod($range, CompareMode::PREVIOUS_PERIOD, 25);
         $scope = new ReportScope(5, 'Asia/Tokyo', 1, ['Asia/Tokyo']);
 
         $scopeResolver = $this->createMock(ReportScopeResolver::class);

@@ -14,6 +14,7 @@ use MageOS\AdvancedReport\Model\Config;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
 use MageOS\AdvancedReport\Model\Definition\DefinitionRegistry;
 use MageOS\AdvancedReport\Model\Definition\FilterOperator;
+use MageOS\AdvancedReport\Model\Definition\Formula\Formula;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\NoSuchDefinitionException;
@@ -75,12 +76,15 @@ class RequestValidator
         $this->assertMetricsValid($dataset, $request);
         $this->assertDimensionsValid($dataset, $request);
         $this->assertFiltersValid($dataset, $request);
+        if ($checkAcl) {
+            $this->assertFieldAclAllowed($dataset, $request);
+        }
         $this->assertLimitValid($request);
         $this->assertOffsetValid($request);
         $this->assertSortValid($request);
         $this->assertStoreIdsValid($request);
         $this->assertSingleBaseCurrency($dataset, $request);
-        $this->assertPresetValid($dataset, $request);
+        $this->assertPresetValid($dataset, $request, $checkAcl);
 
         if (!$dataset->dateless) {
             $resolvedRange = $this->dateRangeResolver->resolve(
@@ -217,6 +221,64 @@ class RequestValidator
             }
             $this->assertFilterValueValid($filter);
         }
+    }
+
+    /**
+     * Rejects a request that reads a gated field (as dimension, filter or metric input, which
+     * also covers sorting) without holding the field's ACL resource.
+     *
+     * @param Dataset $dataset
+     * @param ReportRequestInterface $request
+     * @throws AuthorizationException
+     */
+    private function assertFieldAclAllowed(Dataset $dataset, ReportRequestInterface $request): void
+    {
+        $fieldCodes = array_map(
+            static fn (FilterCondition $filter): string => $filter->field,
+            $request->getFilters()
+        );
+        foreach ($request->getDimensions() as $selection) {
+            $fieldCodes[] = $dataset->dimensions[$selection->code]->fieldCode;
+        }
+        foreach ($request->getMetrics() as $metricCode) {
+            array_push($fieldCodes, ...$this->metricFieldCodes($dataset, $dataset->metrics[$metricCode]));
+        }
+
+        foreach (array_unique($fieldCodes) as $fieldCode) {
+            $acl = $dataset->fields[$fieldCode]->acl ?? null;
+            if ($acl !== null) {
+                $this->assertAllowed($acl);
+            }
+        }
+    }
+
+    /**
+     * Field codes a metric reads, following derived metric formulas down to their aggregates.
+     *
+     * @param Dataset $dataset
+     * @param Metric $metric
+     * @param string[] $visited
+     * @return string[]
+     */
+    private function metricFieldCodes(Dataset $dataset, Metric $metric, array $visited = []): array
+    {
+        if (\in_array($metric->code, $visited, true)) {
+            return [];
+        }
+        $visited[] = $metric->code;
+
+        $codes = array_values(array_filter([$metric->fieldCode, $metric->conditionFieldCode]));
+        if ($metric->formula === null) {
+            return $codes;
+        }
+
+        foreach (Formula::fromString($metric->formula)->getReferences() as $reference) {
+            if (isset($dataset->metrics[$reference])) {
+                array_push($codes, ...$this->metricFieldCodes($dataset, $dataset->metrics[$reference], $visited));
+            }
+        }
+
+        return $codes;
     }
 
     /**
@@ -361,8 +423,10 @@ class RequestValidator
     /**
      * @param Dataset $dataset
      * @param ReportRequestInterface $request
+     * @param bool $checkAcl Whether the extra datasets the preset reads must be readable too.
+     * @throws AuthorizationException
      */
-    private function assertPresetValid(Dataset $dataset, ReportRequestInterface $request): void
+    private function assertPresetValid(Dataset $dataset, ReportRequestInterface $request, bool $checkAcl): void
     {
         $presetCode = $request->getPreset();
         if ($presetCode === null) {
@@ -379,6 +443,10 @@ class RequestValidator
             throw new InvalidRequestException(
                 new Phrase('Preset "%1" does not belong to dataset "%2".', [$presetCode, $dataset->code])
             );
+        }
+
+        if ($checkAcl) {
+            $this->datasetAccess->assertPresetAllowed($preset);
         }
     }
 

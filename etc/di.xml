@@ -91,12 +91,41 @@
             <argument name="itemTable" xsi:type="string">sales_creditmemo_item</argument>
             <argument name="excludedStates" xsi:type="array">
                 <item name="canceled" xsi:type="const">Magento\Sales\Model\Order\Creditmemo::STATE_CANCELED</item>
+                <item name="open" xsi:type="const">Magento\Sales\Model\Order\Creditmemo::STATE_OPEN</item>
             </argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleGrossSalesExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\DynamicBundleRollupExpression">
+        <arguments>
+            <argument name="lineExpression" xsi:type="string">(COALESCE(main.base_row_total, 0) * (1 - COALESCE(main.qty_canceled, 0) / COALESCE(NULLIF(main.qty_ordered, 0), 1)))</argument>
+            <argument name="childrenExpression" xsi:type="string">COALESCE(main.base_row_total, 0) - COALESCE(SUM(COALESCE(bc.base_row_total, 0) * (1 - (1 - COALESCE(bc.qty_canceled, 0) / COALESCE(NULLIF(bc.qty_ordered, 0), 1)))), 0)</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleDiscountExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\DynamicBundleRollupExpression">
+        <arguments>
+            <argument name="lineExpression" xsi:type="string">((ABS(COALESCE(main.base_discount_amount, 0)) - COALESCE(main.base_discount_tax_compensation_amount, 0)) * (1 - COALESCE(main.qty_canceled, 0) / COALESCE(NULLIF(main.qty_ordered, 0), 1)))</argument>
+            <argument name="childrenExpression" xsi:type="string">COALESCE(SUM((ABS(COALESCE(bc.base_discount_amount, 0)) - COALESCE(bc.base_discount_tax_compensation_amount, 0)) * (1 - COALESCE(bc.qty_canceled, 0) / COALESCE(NULLIF(bc.qty_ordered, 0), 1))), 0)</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleReturnsExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\DynamicBundleRollupExpression">
+        <arguments>
+            <argument name="lineExpression" xsi:type="string">(COALESCE(main.base_amount_refunded, 0) - (ABS(COALESCE(main.base_discount_refunded, 0)) - COALESCE(main.base_discount_tax_compensation_refunded, 0)))</argument>
+            <argument name="childrenExpression" xsi:type="string">COALESCE(SUM(COALESCE(bc.base_amount_refunded, 0) - (ABS(COALESCE(bc.base_discount_refunded, 0)) - COALESCE(bc.base_discount_tax_compensation_refunded, 0))), 0)</argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleQtyNetExpression" type="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\DynamicBundleRollupExpression">
+        <arguments>
+            <argument name="lineExpression" xsi:type="string">(COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_canceled, 0))</argument>
+            <argument name="childrenExpression" xsi:type="string">COALESCE(main.qty_ordered, 0) * (1 - COALESCE(MAX(COALESCE(bc.qty_canceled, 0) / COALESCE(NULLIF(bc.qty_ordered, 0), 1)), 0))</argument>
         </arguments>
     </virtualType>
     <type name="MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpressionResolver">
         <arguments>
             <argument name="providers" xsi:type="array">
+                <item name="bundle_gross_sales_amount" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleGrossSalesExpression</item>
+                <item name="bundle_discount_amount" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleDiscountExpression</item>
+                <item name="bundle_returns_amount" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleReturnsExpression</item>
+                <item name="bundle_qty_net" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\BundleQtyNetExpression</item>
                 <item name="units_net_of_canceled" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\OrderUnitsNetOfCanceledExpression</item>
                 <item name="first_order" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\FirstOrderExpression</item>
                 <item name="shipment_count" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\ShipmentCountExpression</item>
@@ -108,6 +137,7 @@
                 <item name="cart_items_abandoned" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsAbandonedExpression</item>
                 <item name="cart_recent" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartRecentExpression</item>
                 <item name="cart_items_recent" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsRecentExpression</item>
+                <item name="cart_customer_email" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartCustomerEmailExpression</item>
                 <item name="cart_state" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartStateExpression</item>
                 <item name="cart_items_state" xsi:type="object">MageOS\AdvancedReport\Model\DataSource\Mysql\FieldExpression\CartItemsStateExpression</item>
             </argument>
@@ -349,6 +379,14 @@
                 <item name="cart_items" xsi:type="array">
                     <item name="abandoned" xsi:type="string">Magento_Reports::abandoned</item>
                     <item name="sales_order" xsi:type="string">Magento_Sales::sales_order</item>
+                </item>
+            </argument>
+            <argument name="presetDatasets" xsi:type="array">
+                <item name="dead_stock" xsi:type="array">
+                    <item name="sales_items" xsi:type="string">sales_items</item>
+                </item>
+                <item name="never_sold" xsi:type="array">
+                    <item name="sales_items" xsi:type="string">sales_items</item>
                 </item>
             </argument>
         </arguments>

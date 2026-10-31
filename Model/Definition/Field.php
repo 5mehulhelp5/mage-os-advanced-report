@@ -15,6 +15,7 @@ final readonly class Field
      * @param FieldType $type
      * @param array<string,SourceMapping> $sourceMappings Keyed by source name (e.g. "mysql").
      * @param string|null $description
+     * @param string|null $acl ACL resource required to select, filter or sort by this field; null when ungated.
      */
     public function __construct(
         public string $code,
@@ -22,6 +23,7 @@ final readonly class Field
         public FieldType $type,
         public array $sourceMappings = [],
         public ?string $description = null,
+        public ?string $acl = null,
     ) {
     }
 

@@ -206,9 +206,10 @@ final class CartMetricsTest extends TestCase
     public function testItDoesNotCountACartAsAbandonedWhenOnlyIsActiveChangesAfterThePinnedUpdatedAt(): void
     {
         $cartId = (int) DataFixtureStorageManager::getStorage()->get('cart4')->getId();
-        $connection = Bootstrap::getObjectManager()->get(ResourceConnection::class)->getConnection();
+        $resource = Bootstrap::getObjectManager()->get(ResourceConnection::class);
+        $connection = $resource->getConnection();
         $row = $connection->fetchRow(
-            $connection->select()->from($connection->getTableName('quote'), ['updated_at', 'is_active'])
+            $connection->select()->from($resource->getTableName('quote'), ['updated_at', 'is_active'])
                 ->where('entity_id = ?', $cartId)
         );
 

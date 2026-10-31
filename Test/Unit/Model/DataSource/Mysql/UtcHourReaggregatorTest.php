@@ -59,6 +59,30 @@ final class UtcHourReaggregatorTest extends TestCase
         );
     }
 
+    public function testItBucketsUtcHourFallbackRowsInTheDateFilterTimezoneWhenAllStoresAreSelected(): void
+    {
+        $rows = [$this->row(['utc_hour' => '2024-03-10 23:00:00'], ['revenue' => 10, 'orders' => 1])];
+
+        // All stores (empty list) share Europe/Rome: 23:00 UTC is already 03-11 locally.
+        $result = $this->build([1 => 'Europe/Rome', 2 => 'Europe/Rome'], 'America/New_York')
+            ->reaggregate($rows, 'created_at', 'day', $this->metrics(), [], 0);
+
+        self::assertSame('2024-03-11', $result['rows'][0]['dims']['created_at']);
+    }
+
+    public function testItBucketsUtcHourFallbackRowsWithAnUnknownStoreInTheDefaultTimezone(): void
+    {
+        $rows = [
+            $this->row(['utc_hour' => '2024-03-10 23:00:00', 'store_id' => null], ['revenue' => 1, 'orders' => 1]),
+            $this->row(['utc_hour' => '2024-03-10 23:00:00', 'store_id' => '1'], ['revenue' => 2, 'orders' => 1]),
+        ];
+
+        $result = $this->build([1 => 'Europe/Rome', 2 => 'Asia/Tokyo'], 'America/New_York')
+            ->reaggregate($rows, 'created_at', 'day', $this->metrics(), [], 0, 'store_id', true);
+
+        self::assertSame(['2024-03-10', '2024-03-11'], array_column(array_column($result['rows'], 'dims'), 'created_at'));
+    }
+
     public function testItReaggregatesWeekBucketsWithTheFirstDayOfWeekPassedIn(): void
     {
         // 2024-03-13 is a Wednesday
@@ -183,9 +207,9 @@ final class UtcHourReaggregatorTest extends TestCase
     }
 
     /**
-     * @param array<string,string> $dims
+     * @param array<string,string|null> $dims
      * @param array<string,int|float|null> $metrics
-     * @return array{dims: array<string,string>, dims_raw: array<string,string>, metrics: array<string,int|float|null>}
+     * @return array{dims: array<string,string|null>, dims_raw: array<string,string|null>, metrics: array<string,int|float|null>}
      */
     private function row(array $dims, array $metrics): array
     {
@@ -205,11 +229,18 @@ final class UtcHourReaggregatorTest extends TestCase
 
     /**
      * @param array<int,string> $timezones
+     * @param string $defaultTimezone
      */
-    private function build(array $timezones): UtcHourReaggregator
+    private function build(array $timezones, string $defaultTimezone = 'UTC'): UtcHourReaggregator
     {
         $map = $this->createStub(StoreTimezoneMap::class);
         $map->method('getTimezone')->willReturnCallback(static fn (int $id): string => $timezones[$id]);
+        $map->method('getDefaultTimezone')->willReturn($defaultTimezone);
+        $map->method('getTimezonesForStores')->willReturnCallback(
+            static fn (array $ids): array => $ids === []
+                ? $timezones
+                : array_intersect_key($timezones, array_flip($ids))
+        );
         return new UtcHourReaggregator($map);
     }
 }

@@ -13,6 +13,7 @@ use MageOS\AdvancedReport\Model\Definition\Dataset;
  * - a non-additive dimension is in use (its rows don't sum up to the totals);
  * - low cost coverage (below {@see LOW_COST_COVERAGE_THRESHOLD}) when a margin metric
  *   (`gross_margin`/`margin_pct`) is requested;
+ * - a cart report range (main or comparison) starts before the quote retention window.
  */
 class ReportWarningsCollector
 {
@@ -28,6 +29,7 @@ class ReportWarningsCollector
      *                                       the hidden `cost_coverage` helper).
      * @param float|null $costCoverage The computed `cost_coverage` total, null when not computed
      *                                 (no margin metric requested, or the dataset has none).
+     * @param QuoteRetentionWindow|null $quoteRetention Null outside the carts area.
      * @return string[]
      */
     public function collect(
@@ -35,11 +37,40 @@ class ReportWarningsCollector
         ReportRequestInterface $request,
         array $requestedMetricCodes,
         ?float $costCoverage,
+        ?QuoteRetentionWindow $quoteRetention = null,
+        ?ResolvedDateRange $range = null,
+        ?ResolvedDateRange $comparisonRange = null,
     ): array {
         return [
             ...$this->nonAdditiveDimensionWarnings($dataset, $request),
             ...$this->lowCostCoverageWarning($requestedMetricCodes, $costCoverage),
+            ...$this->quoteRetentionWarning($quoteRetention, [$range, $comparisonRange]),
         ];
+    }
+
+    /**
+     * @param array<int,ResolvedDateRange|null> $ranges
+     * @return string[]
+     */
+    private function quoteRetentionWarning(?QuoteRetentionWindow $retention, array $ranges): array
+    {
+        if ($retention === null) {
+            return [];
+        }
+
+        foreach ($ranges as $range) {
+            if ($range !== null && $range->from < $retention->cutoff) {
+                return [
+                    (string) new Phrase(
+                        'Carts not updated for more than %1 days are deleted by Magento '
+                        . '(Sales > Checkout > Shopping Cart > Quote Lifetime); results before %2 are incomplete.',
+                        [$retention->days, $retention->cutoff->format('Y-m-d')],
+                    ),
+                ];
+            }
+        }
+
+        return [];
     }
 
     /**

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Test\Unit\Model\Query;
 
 use ArrayObject;
-use DateInterval;
 use DateTimeImmutable;
 use LogicException;
+use Magento\Framework\App\Cache\StateInterface;
+use Magento\Framework\Exception\AuthorizationException;
 use Magento\Framework\Locale\ResolverInterface as LocaleResolverInterface;
 use Magento\Framework\Lock\LockManagerInterface;
+use Magento\Framework\Phrase;
 use MageOS\AdvancedReport\Api\Data\ReportRequestInterface;
 use MageOS\AdvancedReport\Api\DataSourceInterface;
 use MageOS\AdvancedReport\Api\PresetQueryInterface;
@@ -43,6 +45,8 @@ use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\InvalidRequestException;
 use MageOS\AdvancedReport\Model\Query\MonetaryRequestDetector;
 use MageOS\AdvancedReport\Model\Query\QueryPlanner;
+use MageOS\AdvancedReport\Model\Query\QuoteRetention;
+use MageOS\AdvancedReport\Model\Query\QuoteRetentionWindow;
 use MageOS\AdvancedReport\Model\Query\RawResult;
 use MageOS\AdvancedReport\Model\Query\ReportRunner;
 use MageOS\AdvancedReport\Model\Query\ReportScope;
@@ -88,6 +92,8 @@ final class ReportRunnerTest extends TestCase
 
     private ResultConfigFingerprint $resultConfigFingerprint;
 
+    private QuoteRetention $quoteRetention;
+
     private Dataset $dataset;
 
     protected function setUp(): void
@@ -131,6 +137,8 @@ final class ReportRunnerTest extends TestCase
 
         $this->resultConfigFingerprint = $this->createStub(ResultConfigFingerprint::class);
         $this->resultConfigFingerprint->method('get')->willReturn([]);
+
+        $this->quoteRetention = $this->createStub(QuoteRetention::class);
     }
 
     public function testItPassesTheAclFingerprintToTheCacheKeyFromTheRunner(): void
@@ -164,6 +172,63 @@ final class ReportRunnerTest extends TestCase
             'sourceResolver' => $sourceResolver,
             'resultCache' => $resultCache,
         ])->run($this->buildRequest());
+    }
+
+    public function testItDoesNotServeACachedResultWithAStaleRetentionWarningAfterTheWindowMoves(): void
+    {
+        $mainQuery = $this->buildResolvedQuery(['net_sales']);
+        $queryPlanner = $this->createStub(QueryPlanner::class);
+        $queryPlanner->method('plan')->willReturn(['main' => $mainQuery, 'comparison' => null]);
+        $dataSource = $this->createStub(DataSourceInterface::class);
+        $dataSource->method('getCode')->willReturn('mysql');
+        $dataSource->method('execute')->willReturn(
+            new RawResult(rows: [], totals: ['metrics' => ['net_sales' => 1.0]], totalRowCount: 0)
+        );
+        $sourceResolver = $this->createStub(SourceResolver::class);
+        $sourceResolver->method('resolve')->willReturn($dataSource);
+
+        $window = new QuoteRetentionWindow(30, new DateTimeImmutable('2026-02-13'));
+        $retention = $this->createStub(QuoteRetention::class);
+        $retention->method('window')->willReturn($window);
+
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->expects(self::once())->method('buildKey')->with(
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            ['maxRows' => 500, 'quoteRetentionCutoff' => '2026-02-13'],
+        )->willReturn('cache-key');
+        $resultCache->method('load')->willReturn(null);
+
+        $fingerprint = $this->createStub(ResultConfigFingerprint::class);
+        $fingerprint->method('get')->willReturn(['maxRows' => 500]);
+
+        $warningsCollector = $this->createMock(ReportWarningsCollector::class);
+        $warningsCollector->expects(self::once())->method('collect')->with(
+            $this->dataset,
+            self::anything(),
+            self::anything(),
+            self::anything(),
+            $window,
+            $mainQuery->dateRange,
+            null,
+        )->willReturn(['retention']);
+
+        $result = $this->buildRunner([
+            'queryPlanner' => $queryPlanner,
+            'sourceResolver' => $sourceResolver,
+            'resultCache' => $resultCache,
+            'resultConfigFingerprint' => $fingerprint,
+            'quoteRetention' => $retention,
+            'warningsCollector' => $warningsCollector,
+        ])->run($this->buildRequest());
+
+        self::assertSame(['retention'], $result->getWarnings());
     }
 
     public function testItPassesTheResultConfigFingerprintToTheCacheKeyBuilder(): void
@@ -483,7 +548,7 @@ final class ReportRunnerTest extends TestCase
         $dateRangeResolver->expects(self::once())
             ->method('previousPeriod')
             ->with($mainQuery->dateRange, $mainQuery->scope)
-            ->willReturn(new ComparisonPeriod($comparisonRange, new DateInterval('P25D')));
+            ->willReturn(new ComparisonPeriod($comparisonRange, CompareMode::PREVIOUS_PERIOD, 25));
         $this->dateRangeResolver = $dateRangeResolver;
 
         $this->buildRunner(['queryPlanner' => $queryPlanner, 'sourceResolver' => $sourceResolver])->run($request);
@@ -797,6 +862,23 @@ final class ReportRunnerTest extends TestCase
         }
     }
 
+    public function testItValidatesFieldAclBeforeTheResultCacheIsRead(): void
+    {
+        $planner = $this->createStub(QueryPlanner::class);
+        $planner->method('plan')->willThrowException(new AuthorizationException(new Phrase('denied')));
+        $resultCache = $this->createMock(ResultCache::class);
+        $resultCache->expects(self::never())->method('buildKey');
+        $resultCache->expects(self::never())->method('load');
+
+        $this->expectException(AuthorizationException::class);
+
+        $this->buildRunner([
+            'queryPlanner' => $planner,
+            'sourceResolver' => $this->createStub(SourceResolver::class),
+            'resultCache' => $resultCache,
+        ])->run($this->buildRequest());
+    }
+
     public function testItCachesTimeRelativeDatasetsWithTheOpenPeriodTtlEvenForClosedRanges(): void
     {
         $this->assertSavedAsOpenPeriod(['sales_items'], true);
@@ -835,7 +917,7 @@ final class ReportRunnerTest extends TestCase
     public function testItAcquiresALockNamedAfterTheCacheKeyOnACacheMiss(): void
     {
         $lockManager = $this->createMock(LockManagerInterface::class);
-        $resultCacheLock = new ResultCacheLock($lockManager, new ResultCacheWriteGuard());
+        $resultCacheLock = $this->buildLock($lockManager);
         $lockName = $resultCacheLock->getLockName('cache-key');
         $lockManager->expects(self::once())->method('lock')->with($lockName)->willReturn(true);
         $lockManager->expects(self::once())->method('unlock')->with($lockName)->willReturn(true);
@@ -856,7 +938,7 @@ final class ReportRunnerTest extends TestCase
         $resultCache->expects(self::never())->method('save');
 
         $result = $this->buildLockRunner(
-            new ResultCacheLock($lockManager, new ResultCacheWriteGuard()),
+            $this->buildLock($lockManager),
             $this->executingSource(self::never()),
             $resultCache,
         )->run($this->buildRequest());
@@ -872,7 +954,7 @@ final class ReportRunnerTest extends TestCase
 
         $this->expectException(RuntimeException::class);
 
-        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource())->run($this->buildRequest());
+        $this->buildLockRunner($this->buildLock($lockManager), $this->failingSource())->run($this->buildRequest());
     }
 
     public function testItDoesNotCacheAResultWhenTheExecutionThrows(): void
@@ -885,7 +967,7 @@ final class ReportRunnerTest extends TestCase
         $resultCache->expects(self::never())->method('save');
 
         try {
-            $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource(), $resultCache)->run($this->buildRequest());
+            $this->buildLockRunner($this->buildLock($lockManager), $this->failingSource(), $resultCache)->run($this->buildRequest());
             self::fail('Expected RuntimeException');
         } catch (RuntimeException) {
             // expected
@@ -898,7 +980,7 @@ final class ReportRunnerTest extends TestCase
         $lockManager->method('lock')->willReturn(false);
         $lockManager->expects(self::never())->method('unlock');
 
-        $result = $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+        $result = $this->buildLockRunner($this->buildLock($lockManager), $this->executingSource(self::once()))
             ->run($this->buildRequest());
 
         self::assertFalse($result->isCached());
@@ -910,7 +992,7 @@ final class ReportRunnerTest extends TestCase
         $lockManager->expects(self::never())->method('lock');
         $lockManager->expects(self::never())->method('unlock');
 
-        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+        $this->buildLockRunner($this->buildLock($lockManager), $this->executingSource(self::once()))
             ->run($this->buildRequest(bypassCache: true));
     }
 
@@ -920,7 +1002,7 @@ final class ReportRunnerTest extends TestCase
         $lockManager->method('lock')->willThrowException(new RuntimeException('deadlock'));
         $lockManager->expects(self::never())->method('unlock');
 
-        $result = $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->executingSource(self::once()))
+        $result = $this->buildLockRunner($this->buildLock($lockManager), $this->executingSource(self::once()))
             ->run($this->buildRequest());
 
         self::assertFalse($result->isCached());
@@ -935,7 +1017,7 @@ final class ReportRunnerTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('boom');
 
-        $this->buildLockRunner(new ResultCacheLock($lockManager, new ResultCacheWriteGuard()), $this->failingSource())->run($this->buildRequest());
+        $this->buildLockRunner($this->buildLock($lockManager), $this->failingSource())->run($this->buildRequest());
     }
 
     public function testItLocksANestedRunUnderItsOwnKeyWhileTheOuterLockIsHeld(): void
@@ -947,7 +1029,7 @@ final class ReportRunnerTest extends TestCase
 
             return true;
         });
-        $resultCacheLock = new ResultCacheLock($lockManager, new ResultCacheWriteGuard());
+        $resultCacheLock = $this->buildLock($lockManager);
         $resultCache = $this->createStub(ResultCache::class);
         $resultCache->method('buildKey')->willReturnOnConsecutiveCalls('outer-key', 'inner-key');
         $resultCache->method('load')->willReturn(null);
@@ -1056,6 +1138,14 @@ final class ReportRunnerTest extends TestCase
         return $this->buildRunner([...$overrides, 'queryPlanner' => $queryPlanner, 'sourceResolver' => $sourceResolver]);
     }
 
+    private function buildLock(LockManagerInterface $lockManager): ResultCacheLock
+    {
+        $state = $this->createStub(StateInterface::class);
+        $state->method('isEnabled')->willReturn(true);
+
+        return new ResultCacheLock($lockManager, new ResultCacheWriteGuard(), $this->config, $state);
+    }
+
     /**
      * @param array<string,mixed> $overrides Must include `queryPlanner` and `sourceResolver`,
      *                                       each test configures its own `plan()`/`resolve()`.
@@ -1080,8 +1170,9 @@ final class ReportRunnerTest extends TestCase
             $overrides['currencyProbe'] ?? $this->currencyProbe,
             $this->localeResolver,
             $overrides['aclContext'] ?? $this->aclContext,
-            $overrides['resultCacheLock'] ?? new ResultCacheLock($this->createStub(LockManagerInterface::class), new ResultCacheWriteGuard()),
+            $overrides['resultCacheLock'] ?? $this->buildLock($this->createStub(LockManagerInterface::class)),
             $overrides['resultConfigFingerprint'] ?? $this->resultConfigFingerprint,
+            $overrides['quoteRetention'] ?? $this->quoteRetention,
             $overrides['timeRelativeDatasets'] ?? [],
         );
     }

@@ -115,11 +115,17 @@ final readonly class ReportTestRunner
         ], $extra)));
     }
 
-    public function runPreset(string $presetCode, string $from, string $to): ReportResultInterface
+    /**
+     * @param array<string,mixed> $overrides Extra request keys (e.g. `storeIds`, `filters`).
+     */
+    public function runPreset(string $presetCode, string $from, string $to, array $overrides = []): ReportResultInterface
     {
         $request = $this->presetRequestBuilder->build(
             $this->registry->getPreset($presetCode),
-            ['dateRange' => ['type' => 'custom', 'from' => $from, 'to' => $to], 'bypassCache' => true]
+            array_replace(
+                ['dateRange' => ['type' => 'custom', 'from' => $from, 'to' => $to], 'bypassCache' => true],
+                $overrides
+            )
         );
 
         return $this->runner->run($request);

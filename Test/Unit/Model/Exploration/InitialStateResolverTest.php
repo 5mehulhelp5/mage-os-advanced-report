@@ -77,6 +77,13 @@ final class InitialStateResolverTest extends TestCase
         $this->resolver(firstDatasetDenied: true)->resolve('overview', null, 5);
     }
 
+    public function testItThrowsNotFoundWhenOpeningAPresetWhoseExtraDatasetIsDenied(): void
+    {
+        $this->expectException(NoSuchEntityException::class);
+
+        $this->resolver(presetDenied: true)->resolve('overview', null, 5);
+    }
+
     public function testItStartsAnEmptyExplorationOnTheFirstAccessibleDataset(): void
     {
         $result = $this->resolver(firstDatasetDenied: true)->resolve(null, null, 5);
@@ -100,6 +107,7 @@ final class InitialStateResolverTest extends TestCase
     private function resolver(
         ?SavedReportInterface $saved = null,
         bool $firstDatasetDenied = false,
+        bool $presetDenied = false,
     ): InitialStateResolver {
         $dataset = new Dataset(
             'sales_orders',
@@ -154,6 +162,7 @@ final class InitialStateResolverTest extends TestCase
         $datasetAccess->method('isAllowed')->willReturnCallback(
             static fn (Dataset $candidate): bool => !($firstDatasetDenied && $candidate->code === 'sales_orders')
         );
+        $datasetAccess->method('isPresetAllowed')->willReturn(!$presetDenied);
 
         return new InitialStateResolver($registry, $repository, $builder, $factory, $datasetAccess);
     }

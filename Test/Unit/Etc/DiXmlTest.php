@@ -108,9 +108,11 @@ final class DiXmlTest extends TestCase
             }
             $states = $this->element($xpath, $argumentQuery('excludedStates'), $node);
             self::assertSame('array', $states->getAttribute('xsi:type'));
-            $item = $this->element($xpath, 'item', $states);
-            self::assertSame('const', $item->getAttribute('xsi:type'));
-            self::assertSame('Magento\\Sales\\Model\\Order\\Creditmemo::STATE_CANCELED', trim($item->textContent));
+            foreach (['canceled' => 'STATE_CANCELED', 'open' => 'STATE_OPEN'] as $itemName => $constant) {
+                $item = $this->element($xpath, 'item[@name="' . $itemName . '"]', $states);
+                self::assertSame('const', $item->getAttribute('xsi:type'));
+                self::assertSame('Magento\\Sales\\Model\\Order\\Creditmemo::' . $constant, trim($item->textContent));
+            }
         }
     }
 

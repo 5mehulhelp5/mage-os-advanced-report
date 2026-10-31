@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MageOS\AdvancedReport\Test\Unit\Model\Definition;
 
+use Magento\Framework\Acl\AclResource\ProviderInterface;
 use Magento\Framework\App\State;
 use MageOS\AdvancedReport\Model\Definition\AggregateFunction;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
@@ -55,6 +56,26 @@ final class DefinitionValidatorTest extends TestCase
         $this->expectExceptionMessageMatches('/condition field "status" is not of type boolean/');
 
         $validator->validate(['sales_orders' => $dataset], []);
+    }
+
+    public function testItRejectsAFieldAclThatIsNotADeclaredAclResource(): void
+    {
+        $dataset = $this->dataset(fields: [$this->field('birth_year', FieldType::INTEGER, acl: 'Magento_Sales::missing')]);
+        $validator = $this->developerValidator();
+
+        $this->expectException(InvalidDefinitionException::class);
+        $this->expectExceptionMessageMatches('/birth_year.*Magento_Sales::missing/');
+
+        $validator->validate(['sales_orders' => $dataset], []);
+    }
+
+    public function testItAcceptsAFieldAclThatIsADeclaredAclResource(): void
+    {
+        $dataset = $this->dataset(fields: [$this->field('birth_year', FieldType::INTEGER, acl: 'Magento_Sales::actions_view')]);
+
+        $result = $this->developerValidator()->validate(['sales_orders' => $dataset], []);
+
+        self::assertArrayHasKey('birth_year', $result['datasets']['sales_orders']->fields);
     }
 
     #[DataProvider('invalidDerivedMetricReferenceProvider')]
@@ -426,6 +447,7 @@ final class DefinitionValidatorTest extends TestCase
         $developerValidator = new DefinitionValidator(
             $this->stateWithMode(State::MODE_DEVELOPER),
             $this->createStub(LoggerInterface::class),
+            $this->aclProvider(),
         );
         $thrown = false;
         try {
@@ -438,7 +460,7 @@ final class DefinitionValidatorTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::atLeastOnce())->method('error');
 
-        $productionValidator = new DefinitionValidator($this->stateWithMode(State::MODE_PRODUCTION), $logger);
+        $productionValidator = new DefinitionValidator($this->stateWithMode(State::MODE_PRODUCTION), $logger, $this->aclProvider());
         $result = $productionValidator->validate($datasets, $presets);
 
         self::assertArrayHasKey('sales_orders', $result['datasets']);
@@ -490,6 +512,7 @@ final class DefinitionValidatorTest extends TestCase
         ?string $expression = 'main.' . 'field',
         ?string $expressionProvider = null,
         array $joins = [],
+        ?string $acl = null,
     ): Field {
         return new Field(
             code: $code,
@@ -502,6 +525,7 @@ final class DefinitionValidatorTest extends TestCase
                     joins: $joins,
                 ),
             ],
+            acl: $acl,
         );
     }
 
@@ -606,7 +630,20 @@ final class DefinitionValidatorTest extends TestCase
         return new DefinitionValidator(
             $this->stateWithMode(State::MODE_DEVELOPER),
             $this->createStub(LoggerInterface::class),
+            $this->aclProvider(),
         );
+    }
+
+    private function aclProvider(): ProviderInterface
+    {
+        $provider = $this->createStub(ProviderInterface::class);
+        $provider->method('getAclResources')->willReturn([
+            ['id' => 'Magento_Backend::admin', 'children' => [
+                ['id' => 'Magento_Sales::actions_view', 'children' => []],
+            ]],
+        ]);
+
+        return $provider;
     }
 
     /**

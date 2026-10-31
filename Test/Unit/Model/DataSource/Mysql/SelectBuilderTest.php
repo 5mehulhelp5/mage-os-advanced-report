@@ -31,6 +31,7 @@ use MageOS\AdvancedReport\Model\Definition\FieldType;
 use MageOS\AdvancedReport\Model\Definition\FilterOperator;
 use MageOS\AdvancedReport\Model\Definition\Granularity;
 use MageOS\AdvancedReport\Model\Definition\Join;
+use MageOS\AdvancedReport\Model\Definition\JoinCardinality;
 use MageOS\AdvancedReport\Model\Definition\Metric;
 use MageOS\AdvancedReport\Model\Definition\SourceMapping;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
@@ -144,6 +145,73 @@ final class SelectBuilderTest extends TestCase
             'lte' => [FilterOperator::LTE, 5, 'main.customer_group_id <= 5'],
             'between' => [FilterOperator::BETWEEN, [6, 7], 'main.customer_group_id BETWEEN 6 AND 7'],
         ];
+    }
+
+    public function testItFiltersAManyCardinalityJoinFieldWithExistsInsteadOfJoining(): void
+    {
+        $sql = $this->sql($this->query(
+            metrics: ['orders'],
+            filters: [new FilterCondition('category_id', FilterOperator::IN, [3, 4])],
+            implicit: [],
+        ));
+
+        self::assertStringNotContainsString('JOIN', $sql);
+        self::assertStringContainsString(
+            "WHERE (EXISTS (SELECT 1 FROM `catalog_category_product` AS `category` "
+            . "WHERE (category.product_id = main.entity_id) AND (category.category_id IN (3, 4))))",
+            $sql
+        );
+    }
+
+    public function testItNegatesTheExistsSubqueryForNotEqualAndNotInFilters(): void
+    {
+        $neq = $this->sql($this->query(
+            metrics: ['orders'],
+            filters: [new FilterCondition('category_id', FilterOperator::NEQ, 3)],
+            implicit: [],
+        ));
+        $nin = $this->sql($this->query(
+            metrics: ['orders'],
+            filters: [new FilterCondition('category_id', FilterOperator::NIN, [3, 4])],
+            implicit: [],
+        ));
+
+        self::assertStringContainsString('WHERE (NOT EXISTS (SELECT 1 FROM', $neq);
+        self::assertStringContainsString('(category.category_id = 3)))', $neq);
+        self::assertStringContainsString('(category.category_id IN (3, 4))))', $nin);
+        self::assertStringContainsString('WHERE (NOT EXISTS (SELECT 1 FROM', $nin);
+        self::assertStringNotContainsString('JOIN', $neq . $nin);
+    }
+
+    public function testItKeepsTheJoinAndWhereClauseWhenTheManyJoinIsAlsoASelectedDimension(): void
+    {
+        $sql = $this->sql($this->query(
+            metrics: ['orders'],
+            dimensions: [new DimensionSelection('category_id')],
+            filters: [new FilterCondition('category_id', FilterOperator::IN, [3, 4])],
+            implicit: [],
+        ));
+
+        self::assertStringContainsString('LEFT JOIN `catalog_category_product` AS `category`', $sql);
+        self::assertStringContainsString('WHERE (category.category_id IN (3, 4))', $sql);
+        self::assertStringNotContainsString('EXISTS', $sql);
+    }
+
+    public function testItDoesNotJoinTheManyJoinInTheCurrencyProbeWhenTheFilterUsesExists(): void
+    {
+        $resource = $this->createStub(ResourceConnection::class);
+        $resource->method('getConnectionByName')->willReturn($this->createSqlAdapter());
+        $resource->method('getTableName')->willReturnArgument(0);
+        $query = $this->query(
+            metrics: ['orders'],
+            filters: [new FilterCondition('category_id', FilterOperator::IN, [3])],
+            implicit: [],
+        );
+
+        $sql = $this->normalizeSql($this->builder($resource, 'default')->buildCurrencyProbe($query));
+
+        self::assertStringNotContainsString('JOIN', $sql);
+        self::assertStringContainsString('EXISTS (SELECT 1 FROM `catalog_category_product`', $sql);
     }
 
     public function testItAddsOnlyJoinsRequiredByUsedFields(): void
@@ -453,6 +521,58 @@ final class SelectBuilderTest extends TestCase
         self::assertStringNotContainsString('LIMIT', $sql);
     }
 
+    public function testItSortsByADerivedMetricWhoseFormulaReferencesAnotherDerivedMetric(): void
+    {
+        $sql = $this->orderBySql('avg_net');
+
+        self::assertStringEndsWith(
+            'ORDER BY ((COALESCE(SUM(main.base_subtotal), 0) - COUNT(main.entity_id))'
+            . ' / NULLIF(COUNT(main.entity_id), 0)) DESC',
+            $sql
+        );
+    }
+
+    public function testItSortsByADerivedMetricNestedThreeLevelsDeep(): void
+    {
+        $sql = $this->orderBySql('margin_pct');
+
+        self::assertStringEndsWith(
+            'ORDER BY (((COALESCE(SUM(main.base_subtotal), 0) - COUNT(main.entity_id)) - COUNT(main.entity_id))'
+            . ' / NULLIF((COALESCE(SUM(main.base_subtotal), 0) - COUNT(main.entity_id)), 0)) DESC',
+            $sql
+        );
+    }
+
+    public function testItParenthesizesExpandedSubFormulasToPreserveOperatorPrecedence(): void
+    {
+        $sql = $this->orderBySql('avg_net');
+
+        self::assertStringContainsString('((COALESCE(SUM(main.base_subtotal), 0) - COUNT(main.entity_id)) / NULLIF(', $sql);
+    }
+
+    public function testItRejectsASortWhoseFormulaReferencesAnUnselectedAggregateMetric(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot sort by unselected metric "new_gross"');
+
+        $this->orderBySql('bad_avg');
+    }
+
+    public function testItRejectsAFormulaCycleInsteadOfRecursingForever(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('cycle');
+
+        $this->orderBySql('loop_a');
+    }
+
+    private function orderBySql(string $target): string
+    {
+        $query = $this->sortedQuery([new SortOrder($target, 'desc')], [], null, 0);
+
+        return $this->normalizeSql($this->builderFor()->buildPage($query));
+    }
+
     /**
      * @param string $target
      */
@@ -645,7 +765,6 @@ final class SelectBuilderTest extends TestCase
         $aggregates = new AggregateExpressionBuilder($resolver);
 
         return new SelectBuilder(
-            $resource,
             new ReportConnection($resource, $config),
             new JoinRegistry(),
             $resolver,
@@ -737,6 +856,7 @@ final class SelectBuilderTest extends TestCase
                 'is_new' => $field('is_new', FieldType::BOOLEAN, $prefix . '.is_new'),
                 'base_currency_code' => $field('base_currency_code', FieldType::STRING, $prefix . '.base_currency_code'),
                 'method' => $field('method', FieldType::STRING, 'payment.method', ['payment']),
+                'category_id' => $field('category_id', FieldType::ID, 'category.category_id', ['category']),
                 'address' => $field('address', FieldType::STRING, 'billing.city', ['billing']),
                 'first_order' => new Field(
                     'first_order',
@@ -758,6 +878,14 @@ final class SelectBuilderTest extends TestCase
                     'billing',
                     'billing.parent_id = ' . $prefix . '.entity_id'
                 ),
+                'category' => new Join(
+                    'category',
+                    'catalog_category_product',
+                    'category',
+                    'category.product_id = ' . $prefix . '.entity_id',
+                    [],
+                    JoinCardinality::MANY
+                ),
             ],
             [
                 'orders' => $metric('orders', AggregateFunction::COUNT, 'order_id'),
@@ -766,10 +894,19 @@ final class SelectBuilderTest extends TestCase
                 'new_customers' => $metric('new_customers', AggregateFunction::COUNT_DISTINCT, 'customer_id', 'is_new'),
                 'first_orders' => $metric('first_orders', AggregateFunction::SUM, 'first_order'),
                 'avg_gross' => new Metric('avg_gross', 'avg_gross', null, 'money', false, false, null, null, null, 'gross / orders'),
+                'net' => new Metric('net', 'net', null, 'money', false, false, null, null, null, 'gross - orders'),
+                'avg_net' => new Metric('avg_net', 'avg_net', null, 'money', false, false, null, null, null, 'net / orders'),
+                'margin' => new Metric('margin', 'margin', null, 'money', false, false, null, null, null, 'net - orders'),
+                'margin_pct' => new Metric('margin_pct', 'margin_pct', null, 'percent', false, false, null, null, null, 'margin / net'),
+                'bad_net' => new Metric('bad_net', 'bad_net', null, 'money', false, false, null, null, null, 'gross - new_gross'),
+                'bad_avg' => new Metric('bad_avg', 'bad_avg', null, 'money', false, false, null, null, null, 'bad_net / orders'),
+                'loop_a' => new Metric('loop_a', 'loop_a', null, 'money', false, false, null, null, null, 'loop_b + 1'),
+                'loop_b' => new Metric('loop_b', 'loop_b', null, 'money', false, false, null, null, null, 'loop_a + 1'),
             ],
             [
                 'customer_group_id' => new Dimension('customer_group_id', 'Group', 'customer_group_id'),
                 'method' => new Dimension('method', 'Method', 'method'),
+                'category_id' => new Dimension('category_id', 'Category', 'category_id'),
                 'order_hour' => new Dimension('order_hour', 'Hour', 'created_at'),
                 'order_date' => new Dimension(
                     'order_date',

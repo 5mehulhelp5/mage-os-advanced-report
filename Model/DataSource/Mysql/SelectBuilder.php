@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace MageOS\AdvancedReport\Model\DataSource\Mysql;
 
 use InvalidArgumentException;
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use Magento\Framework\DB\Sql\Expression;
 use MageOS\AdvancedReport\Model\Definition\Dataset;
+use MageOS\AdvancedReport\Model\Definition\Join;
+use MageOS\AdvancedReport\Model\Definition\JoinCardinality;
 use MageOS\AdvancedReport\Model\Query\DimensionSelection;
 use MageOS\AdvancedReport\Model\Query\ResolvedQuery;
 use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
@@ -22,6 +23,7 @@ use MageOS\AdvancedReport\Model\Timezone\StoreTimezoneMap;
  */
 class SelectBuilder
 {
+    private const string SOURCE = 'mysql';
     private const string UTC_HOUR_COLUMN = 'utc_hour';
     private const string STORE_COLUMN = 'store_id';
     private const int FALLBACK_ROW_CAP_FACTOR = 50;
@@ -30,7 +32,6 @@ class SelectBuilder
      * @param array<string,BaseSelectProviderInterface> $baseSelectProviders Keyed by provider class name.
      */
     public function __construct(
-        private readonly ResourceConnection $resourceConnection,
         private readonly ReportConnection $reportConnection,
         private readonly JoinRegistry $joinRegistry,
         private readonly FieldExpressionResolver $fieldExpressionResolver,
@@ -119,7 +120,9 @@ class SelectBuilder
     private function buildSelect(ResolvedQuery $query, bool $utcHourFallback): Select
     {
         $connection = $this->getConnection();
-        $select = $this->buildFiltered($query, $this->collectFieldCodes($query), $connection);
+        $baseCodes = $this->collectFieldCodes($query);
+        $existsJoins = $this->existsJoins($query, $baseCodes);
+        $select = $this->buildFiltered($query, $baseCodes, $existsJoins, $connection);
         $this->applyColumns($select, $query, $connection, $utcHourFallback);
 
         return $select;
@@ -129,24 +132,65 @@ class SelectBuilder
      * FROM, joins for the given field codes, date/store scope, implicit and user filters.
      *
      * @param ResolvedQuery $query
-     * @param string[] $fieldCodes
+     * @param string[] $baseFieldCodes Field codes needed regardless of the user filters.
+     * @param array<int,Join> $existsJoins Many-cardinality joins by filter index, rendered as EXISTS.
      * @param AdapterInterface $connection
      */
-    private function buildFiltered(ResolvedQuery $query, array $fieldCodes, AdapterInterface $connection): Select
-    {
+    private function buildFiltered(
+        ResolvedQuery $query,
+        array $baseFieldCodes,
+        array $existsJoins,
+        AdapterInterface $connection
+    ): Select {
         $dataset = $query->dataset;
+        $fieldCodes = $baseFieldCodes;
+        foreach ($query->filters as $index => $filter) {
+            if (!isset($existsJoins[$index])) {
+                $fieldCodes[] = $filter->field;
+            }
+        }
         $select = $connection->select();
         $select->from([$this->baseAlias($dataset) => $this->baseSource($dataset, $connection)], []);
         foreach ($this->joinRegistry->resolve($dataset, $fieldCodes) as $join) {
             $select->joinLeft(
-                [$join->alias => $this->resourceConnection->getTableName($join->table)],
+                [$join->alias => $this->reportConnection->getTableName($join->table)],
                 $join->condition,
                 []
             );
         }
-        $this->applyFilters($select, $query, $connection);
+        $this->applyFilters($select, $query, $existsJoins, $connection);
 
         return $select;
+    }
+
+    /**
+     * Filters on a many-cardinality join that no other field of the query needs: they must not join
+     * (the join would multiply or drop rows) and are rendered as EXISTS / NOT EXISTS instead.
+     *
+     * @param ResolvedQuery $query
+     * @param string[] $baseFieldCodes Field codes needed regardless of the user filters.
+     * @return array<int,Join> Join by filter index.
+     */
+    private function existsJoins(ResolvedQuery $query, array $baseFieldCodes): array
+    {
+        $dataset = $query->dataset;
+        $usedJoinCodes = array_map(
+            static fn (Join $join): string => $join->code,
+            $this->joinRegistry->resolve($dataset, $baseFieldCodes)
+        );
+        $existsJoins = [];
+        foreach ($query->filters as $index => $filter) {
+            $joinCodes = $dataset->getField($filter->field)->sourceMappings[self::SOURCE]->joins ?? [];
+            if (\count($joinCodes) !== 1 || \in_array($joinCodes[0], $usedJoinCodes, true)) {
+                continue;
+            }
+            $join = $dataset->getJoin($joinCodes[0]);
+            if ($join->cardinality === JoinCardinality::MANY && $join->requires === []) {
+                $existsJoins[$index] = $join;
+            }
+        }
+
+        return $existsJoins;
     }
 
     /**
@@ -167,11 +211,9 @@ class SelectBuilder
             }
         }
         $codes[] = Dataset::FIELD_BASE_CURRENCY;
-        foreach ($query->filters as $filter) {
-            $codes[] = $filter->field;
-        }
 
-        $select = $this->buildFiltered($query, array_values(array_unique($codes)), $connection);
+        $baseCodes = array_values(array_unique($codes));
+        $select = $this->buildFiltered($query, $baseCodes, $this->existsJoins($query, $baseCodes), $connection);
         $select->columns([Dataset::FIELD_BASE_CURRENCY => new Expression(
             $this->fieldExpressionResolver->resolve($dataset, Dataset::FIELD_BASE_CURRENCY, $connection)
         )]);
@@ -234,7 +276,7 @@ class SelectBuilder
     private function baseSource(Dataset $dataset, AdapterInterface $connection): string|Select
     {
         if ($dataset->baseProvider === null) {
-            return $this->resourceConnection->getTableName((string) $dataset->baseTable);
+            return $this->reportConnection->getTableName((string) $dataset->baseTable);
         }
         $provider = $this->baseSelectProviders[$dataset->baseProvider] ?? throw new InvalidArgumentException(
             \sprintf('Unknown base select provider "%s".', $dataset->baseProvider)
@@ -246,17 +288,30 @@ class SelectBuilder
     /**
      * @param Select $select
      * @param ResolvedQuery $query
+     * @param array<int,Join> $existsJoins
      * @param AdapterInterface $connection
      */
-    private function applyFilters(Select $select, ResolvedQuery $query, AdapterInterface $connection): void
-    {
+    private function applyFilters(
+        Select $select,
+        ResolvedQuery $query,
+        array $existsJoins,
+        AdapterInterface $connection
+    ): void {
         $this->dateScopeApplier->apply($select, $query, $connection);
         foreach ($this->implicitFilterPool->getConditions($query->dataset, $connection) as $condition) {
             $select->where($condition);
         }
-        foreach ($query->filters as $filter) {
+        foreach ($query->filters as $index => $filter) {
             $expression = $this->fieldExpressionResolver->resolve($query->dataset, $filter->field, $connection);
-            $select->where($this->userFilterBuilder->build($filter, $expression, $connection));
+            $select->where(isset($existsJoins[$index])
+                ? $this->userFilterBuilder->buildExists(
+                    $filter,
+                    $expression,
+                    $existsJoins[$index],
+                    $this->reportConnection->getTableName($existsJoins[$index]->table),
+                    $connection
+                )
+                : $this->userFilterBuilder->build($filter, $expression, $connection));
         }
     }
 
@@ -349,8 +404,8 @@ class SelectBuilder
     }
 
     /**
-     * Field codes whose joins the query needs: reserved fields, implicit filters, dimensions,
-     * metrics and user filters.
+     * Field codes whose joins the query needs regardless of the user filters: reserved fields,
+     * implicit filters, dimensions and metrics.
      *
      * @param ResolvedQuery $query
      * @return string[]
@@ -369,9 +424,6 @@ class SelectBuilder
         }
         foreach ($query->metrics as $code) {
             array_push($codes, ...$this->aggregateExpressionBuilder->getFieldCodes($dataset->getMetric($code)));
-        }
-        foreach ($query->filters as $filter) {
-            $codes[] = $filter->field;
         }
 
         return array_values(array_unique($codes));

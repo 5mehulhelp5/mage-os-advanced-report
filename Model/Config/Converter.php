@@ -143,6 +143,7 @@ class Converter implements ConverterInterface
                 'label' => $this->attr($node, 'label'),
                 'type' => $this->attr($node, 'type'),
                 'description' => $this->attr($node, 'description'),
+                'acl' => $this->attr($node, 'acl'),
                 'sourceMappings' => $this->convertSourceMappings($node),
             ];
         }

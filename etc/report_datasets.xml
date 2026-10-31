@@ -41,12 +41,12 @@
             <mysql expression="(COALESCE(main.base_subtotal, 0) - COALESCE(main.base_subtotal_canceled, 0))"/>
         </field>
         <field code="discount_amount" label="Discount amount" type="money"
-               description="Discount amount applied, net of cancellations.">
-            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)))"/>
+               description="Discount amount applied, net of cancellations and of the discount tax compensation.">
+            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)) - (CASE WHEN main.base_subtotal_canceled IS NOT NULL THEN COALESCE(main.base_discount_tax_compensation_invoiced, 0) ELSE COALESCE(main.base_discount_tax_compensation_amount, 0) + COALESCE(main.base_shipping_discount_tax_compensation_amnt, 0) END))"/>
         </field>
         <field code="returns_amount" label="Returns amount" type="money"
                description="Subtotal and discount refunded via credit memos.">
-            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - (ABS(COALESCE(main.base_discount_refunded, 0)) - COALESCE(main.base_discount_tax_compensation_refunded, 0)))"/>
         </field>
         <field code="shipping_amount" label="Shipping amount" type="money"
                description="Shipping amount charged, net of cancellations and refunds.">
@@ -88,16 +88,16 @@
         <field code="billing_postcode" label="Billing zipcode" type="string">
             <mysql expression="UPPER(TRIM(billing_address.postcode))" joins="billing_address"/>
         </field>
-        <field code="birth_year" label="Year of birth" type="integer">
+        <field code="birth_year" label="Year of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="YEAR(main.customer_dob)"/>
         </field>
-        <field code="birth_month" label="Month of birth" type="integer">
+        <field code="birth_month" label="Month of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="MONTH(main.customer_dob)"/>
         </field>
-        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+        <field code="birth_weekday" label="Day of the week of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="(DAYOFWEEK(main.customer_dob) - 1)"/>
         </field>
-        <field code="gender" label="Gender" type="id">
+        <field code="gender" label="Gender" type="id" acl="Magento_Sales::actions_view">
             <mysql expression="main.customer_gender"/>
         </field>
 
@@ -107,7 +107,7 @@
                 description="Order subtotal excluding tax, net of cancellations."/>
         <metric code="discounts" label="Discounts" format="money" aggregate="sum" field="discount_amount"
                 lowerIsBetter="true"
-                description="Discount amount applied, net of cancellations. A lower value is an improvement."/>
+                description="Discount amount applied, net of cancellations and of the discount tax compensation. A lower value is an improvement."/>
         <metric code="returns" label="Returns" format="money" aggregate="sum" field="returns_amount"
                 lowerIsBetter="true"
                 description="Subtotal and discount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date."/>
@@ -214,12 +214,12 @@
             <mysql expression="(COALESCE(main.base_subtotal, 0) - COALESCE(main.base_subtotal_canceled, 0))"/>
         </field>
         <field code="discount_amount" label="Discount amount" type="money"
-               description="Discount amount applied, net of cancellations.">
-            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)))"/>
+               description="Discount amount applied, net of cancellations and of the discount tax compensation.">
+            <mysql expression="(ABS(COALESCE(main.base_discount_amount, 0)) - ABS(COALESCE(main.base_discount_canceled, 0)) - (CASE WHEN main.base_subtotal_canceled IS NOT NULL THEN COALESCE(main.base_discount_tax_compensation_invoiced, 0) ELSE COALESCE(main.base_discount_tax_compensation_amount, 0) + COALESCE(main.base_shipping_discount_tax_compensation_amnt, 0) END))"/>
         </field>
         <field code="returns_amount" label="Returns amount" type="money"
                description="Subtotal and discount refunded via credit memos.">
-            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+            <mysql expression="(COALESCE(main.base_subtotal_refunded, 0) - (ABS(COALESCE(main.base_discount_refunded, 0)) - COALESCE(main.base_discount_tax_compensation_refunded, 0)))"/>
         </field>
         <field code="shipping_amount" label="Shipping amount" type="money"
                description="Shipping amount charged, net of cancellations and refunds.">
@@ -244,16 +244,16 @@
         <field code="billing_postcode" label="Billing zipcode" type="string">
             <mysql expression="UPPER(TRIM(billing_address.postcode))" joins="billing_address"/>
         </field>
-        <field code="birth_year" label="Year of birth" type="integer">
+        <field code="birth_year" label="Year of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="YEAR(main.customer_dob)"/>
         </field>
-        <field code="birth_month" label="Month of birth" type="integer">
+        <field code="birth_month" label="Month of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="MONTH(main.customer_dob)"/>
         </field>
-        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+        <field code="birth_weekday" label="Day of the week of birth" type="integer" acl="Magento_Sales::actions_view">
             <mysql expression="(DAYOFWEEK(main.customer_dob) - 1)"/>
         </field>
-        <field code="gender" label="Gender" type="id">
+        <field code="gender" label="Gender" type="id" acl="Magento_Sales::actions_view">
             <mysql expression="main.customer_gender"/>
         </field>
 
@@ -335,16 +335,16 @@
         <field code="billing_postcode" label="Billing zipcode" type="string">
             <mysql expression="UPPER(TRIM(default_billing_address.postcode))" joins="default_billing_address"/>
         </field>
-        <field code="birth_year" label="Year of birth" type="integer">
+        <field code="birth_year" label="Year of birth" type="integer" acl="Magento_Customer::manage">
             <mysql expression="YEAR(main.dob)"/>
         </field>
-        <field code="birth_month" label="Month of birth" type="integer">
+        <field code="birth_month" label="Month of birth" type="integer" acl="Magento_Customer::manage">
             <mysql expression="MONTH(main.dob)"/>
         </field>
-        <field code="birth_weekday" label="Day of the week of birth" type="integer">
+        <field code="birth_weekday" label="Day of the week of birth" type="integer" acl="Magento_Customer::manage">
             <mysql expression="(DAYOFWEEK(main.dob) - 1)"/>
         </field>
-        <field code="gender" label="Gender" type="id">
+        <field code="gender" label="Gender" type="id" acl="Magento_Customer::manage">
             <mysql expression="main.gender"/>
         </field>
 
@@ -447,7 +447,7 @@
         </field>
         <field code="qty_net" label="Units ordered, net" type="decimal"
                description="Quantity ordered net of cancellations.">
-            <mysql expression="(COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_canceled, 0))"/>
+            <mysql expressionProvider="bundle_qty_net"/>
         </field>
         <field code="qty_refunded_qty" label="Units refunded" type="decimal">
             <mysql expression="COALESCE(main.qty_refunded, 0)"/>
@@ -461,15 +461,16 @@
             <mysql expression="(CASE WHEN main.is_virtual = 1 THEN 0 WHEN main.product_type = 'bundle' AND (CASE WHEN JSON_VALID(main.product_options) THEN JSON_UNQUOTE(JSON_EXTRACT(main.product_options, '$.shipment_type')) END) = '1' THEN 0 ELSE GREATEST(COALESCE(main.qty_ordered, 0) - COALESCE(main.qty_shipped, 0) - COALESCE(main.qty_refunded, 0) - COALESCE(main.qty_canceled, 0), 0) END)"/>
         </field>
         <field code="gross_sales_amount" label="Gross sales amount" type="money"
-               description="Row total, excluding tax.">
-            <mysql expression="COALESCE(main.base_row_total, 0)"/>
+               description="Row total, excluding tax, net of the canceled quantity.">
+            <mysql expressionProvider="bundle_gross_sales_amount"/>
         </field>
-        <field code="discount_amount" label="Discount amount" type="money">
-            <mysql expression="ABS(COALESCE(main.base_discount_amount, 0))"/>
+        <field code="discount_amount" label="Discount amount" type="money"
+               description="Discount applied, net of the canceled quantity and of the discount tax compensation.">
+            <mysql expressionProvider="bundle_discount_amount"/>
         </field>
         <field code="returns_amount" label="Returns amount" type="money"
                description="Amount refunded via credit memos, net of refunded discount.">
-            <mysql expression="(COALESCE(main.base_amount_refunded, 0) - ABS(COALESCE(main.base_discount_refunded, 0)))"/>
+            <mysql expressionProvider="bundle_returns_amount"/>
         </field>
         <field code="shipment_count" label="Shipment count" type="integer"
                description="Number of shipments containing the item (or its configurable child).">
@@ -495,14 +496,14 @@
                 description="Row total, excluding tax. Configurable products are counted as a single line (bundle = single line)."/>
         <metric code="discounts" label="Discounts" format="money" aggregate="sum" field="discount_amount"
                 lowerIsBetter="true"
-                description="Discount amount applied to the item. A lower value is an improvement."/>
+                description="Discount amount applied to the item, net of the canceled quantity and of the discount tax compensation. A lower value is an improvement."/>
         <metric code="returns" label="Returns" format="money" aggregate="sum" field="returns_amount"
                 lowerIsBetter="true"
                 description="Amount refunded via credit memos, net of refunded discount. Limitation: returns are attributed to the original order date, not the credit memo date."/>
         <metric code="net_sales" label="Net sales" format="money" formula="gross_sales - discounts - returns"
                 description="Gross sales minus discounts minus returns."/>
         <metric code="cost" label="Cost" format="money" aggregate="sum" field="cost_amount" condition="has_cost"
-                description="Unit cost multiplied by units sold, only over rows with a known cost."/>
+                description="Unit cost multiplied by units sold (net of canceled and refunded units), only over rows with a known cost."/>
         <metric code="gross_margin" label="Gross margin" format="money" formula="net_sales - cost"
                 description="Net sales minus cost."/>
         <metric code="margin_pct" label="Margin %" format="percent" formula="gross_margin / net_sales"
@@ -689,8 +690,9 @@
         <field code="customer_group_id" label="Customer group" type="id">
             <mysql expression="main.customer_group_id"/>
         </field>
-        <field code="customer_email" label="Customer email" type="string">
-            <mysql expression="LOWER(TRIM(main.customer_email))"/>
+        <field code="customer_email" label="Customer email" type="string"
+               description="Lowercased, trimmed cart email; guest carts without a quote email fall back to the billing address email.">
+            <mysql expressionProvider="cart_customer_email"/>
         </field>
         <field code="is_guest" label="Is guest" type="boolean"
                description="Whether the cart has no customer account.">
@@ -707,11 +709,11 @@
             <mysql expressionProvider="cart_converted"/>
         </field>
         <field code="is_abandoned" label="Is abandoned" type="boolean"
-               description="Whether the cart is active, has items and an email, and was idle beyond the abandoned threshold.">
+               description="Whether the cart is active, has items and an email (quote email, else billing address email), has no order, and was idle beyond the abandoned threshold.">
             <mysql expressionProvider="cart_abandoned"/>
         </field>
         <field code="is_recent" label="Is recent" type="boolean"
-               description="Whether the cart is active, has items and was updated within the recent cart hours.">
+               description="Whether the cart is active, has items, has no order and was updated within the recent cart hours.">
             <mysql expressionProvider="cart_recent"/>
         </field>
         <field code="cart_state" label="Cart state" type="string"
